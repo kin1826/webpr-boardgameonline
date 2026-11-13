@@ -1,7 +1,5 @@
 import type { GameEffectEvent, RoomSnapshot } from '@banban/shared';
 
-type GameRevision = { gameId?: unknown; revision?: unknown };
-
 export type Impact = { amplitude: number; duration: number };
 export type FlightRect = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
 export type FlightTransform = { translateX: number; translateY: number; scaleX: number; scaleY: number };
@@ -42,6 +40,6 @@ export function penaltyImpact(total: number, mobile: boolean): Impact {
 /** Effects are presentation-only and only run for the exact authoritative snapshot they describe. */
 export function shouldPlayGameEffect(event: GameEffectEvent, snapshot: RoomSnapshot | null, seen: ReadonlySet<string>): boolean {
   if (!snapshot || snapshot.roomId !== event.roomId || snapshot.revision !== event.revision || seen.has(event.eventId)) return false;
-  const game = snapshot.game as GameRevision | null;
+  const game = snapshot.game;
   return Boolean(game && game.gameId === event.gameId && game.revision === event.gameRevision);
 }

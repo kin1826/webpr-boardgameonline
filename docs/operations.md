@@ -32,7 +32,7 @@ npm run build
 npm start
 ```
 
-Backend chạy tại `http://localhost:3001`, phục vụ `dist/`, `/health`, `/api/rooms` và Socket.IO cùng origin. Smoke test đã xác minh status 200 và payload health/public rooms. Một reverse proxy nếu dùng phải hỗ trợ WebSocket và HTTPS cho Internet; đặt `ALLOWED_ORIGINS` cụ thể. Không chạy nhiều replica/cluster vì state chỉ ở RAM của process này.
+Backend chạy tại `http://localhost:3001`, phục vụ `dist/`, `/health`, `/api/rooms`, `/api/games` và Socket.IO cùng origin. Khi khởi động, server nạp snapshot Nối từ từ `data/word-chain/`, xác minh version/hash/count/seed và dựng Set một lần. Lỗi data làm `available:false` cho Nối từ, không dừng UNO. Production cần giữ các file data này cạnh repo; không chạy nhiều replica/cluster vì state nằm trong RAM của process này.
 
 Server restart, crash hoặc deploy mất phòng và token. localStorage chỉ giữ thông tin nối lại, không khôi phục được phòng đã mất. Không có persistence, Redis, database hay log bàn bài.
 
@@ -40,4 +40,4 @@ Server restart, crash hoặc deploy mất phòng và token. localStorage chỉ g
 
 - Browser access host không khả dụng trong phiên làm việc; chưa kiểm tra trực tiếp giao diện hai browser context hoặc ảnh desktop/mobile.
 - Chưa có thiết bị điện thoại thật để xác nhận LAN.
-- Xem [verification-report.md](./verification-report.md) để biết test tự động đã chạy và giới hạn của fixture.
+- Xem [tóm tắt kiểm chứng](./reports/project-summary.md) để biết các kiểm tra đã chạy và giới hạn còn lại.

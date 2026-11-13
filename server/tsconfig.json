@@ -12,5 +12,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/**/*.ts", "../packages/shared/src/**/*.ts", "../packages/uno/src/**/*.ts"]
+  "include": ["src/**/*.ts", "../packages/shared/src/**/*.ts", "../packages/uno/src/**/*.ts", "../packages/noitu/src/**/*.ts"]
 }

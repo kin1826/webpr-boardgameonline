@@ -1,0 +1,19 @@
+{
+  "dataset_version": "underthesea-2c078cf-ntvi1-curation-1",
+  "source": "two-syllable-candidates.jsonl",
+  "reviewed_allow": {
+    "nấu cơm": "Từ mồi ví dụ do người dùng đưa; được giữ để có thể bắt đầu ván theo ví dụ sản phẩm.",
+    "cơm nước": "Cụm từ xuất hiện trong ví dụ luồng chơi và có trong snapshot nguồn.",
+    "nước lọc": "Cụm từ xuất hiện trong ví dụ luồng chơi và có trong snapshot nguồn.",
+    "tiếng việt": "Tên ngôn ngữ trong cụm từ thông dụng; được giữ làm từ mồi sau khi heuristic viết hoa tạm quarantine."
+  },
+  "deny_words": [],
+  "seed_words": [
+    "nấu cơm", "học sinh", "sinh viên", "viên chức", "hạnh phúc", "bánh mì",
+    "bạn bè", "gia đình", "xe đạp", "cây xanh", "bóng đá", "nước lọc",
+    "sách vở", "hoa quả", "đất nước", "công việc", "mưa gió",
+    "tình yêu", "cá nhân", "sức khỏe", "cà phê", "tiếng việt", "nhà cửa",
+    "thành phố", "máy tính", "đường phố", "nhà trường", "tập thể", "giải trí"
+  ],
+  "quarantine_rule": "Tạm quarantine mục chỉ có dạng nguồn viết hoa; heuristic này có thể loại nhầm từ đứng đầu câu. Chỉ đưa lại bằng reviewed_allow có lý do."
+}

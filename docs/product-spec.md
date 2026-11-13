@@ -1,12 +1,10 @@
 # Phạm vi sản phẩm MVP
 
-> Đặc tả đích mới: BB-UNO-1 trong `uno-rules.md` và đợt sửa `uno-fix-plan.md` đã được duyệt và triển khai; Terra cần nghiệm thu. Những yêu cầu Classic/challenge không phù hợp bên dưới được thay bởi BB-UNO-1.
-
-Trạng thái: MVP đã triển khai; đặc tả và các lựa chọn sản phẩm được chốt 13/11/2026. Phần chưa kiểm tra browser/thiết bị thật nằm trong [verification-report.md](./verification-report.md).
+Trạng thái: UNO theo [BB-UNO-1](./uno-rules.md) đã triển khai; Nối từ NT-VI-1 vừa được thêm và đang chờ nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md) và [báo cáo Nối từ](./reports/noitu/summary.md).
 
 ## Mục tiêu
 
-Hai người trên hai thiết bị mở web, nhập biệt danh, vào cùng phòng và chơi trọn một ván UNO bằng realtime. Tối đa sáu người; người chơi đầu tiên hết bài thắng sau khi hoàn tất nghĩa vụ cuối ván theo bộ luật đã chọn. Không có điểm tích lũy qua nhiều ván.
+Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi UNO hoặc Nối từ realtime. Mỗi phòng chỉ có một game, tối đa sáu người; trạng thái do server kiểm tra. Không có điểm tích lũy qua nhiều ván.
 
 ## Luồng và điều kiện chấp nhận
 
@@ -17,6 +15,7 @@ Hai người trên hai thiết bị mở web, nhập biệt danh, vào cùng ph�
 | Tham gia | Nhập mã rồi nhập tên | Báo rõ phòng sai/đầy/đang chơi; không có luồng join qua link |
 | Phòng chờ | Hiện ghế, tên, kết nối, sẵn sàng, chủ phòng | 2–6 người; tất cả online, mọi khách sẵn sàng; chủ phòng bấm bắt đầu |
 | Ván chơi | Tay bài riêng, lượt, rút, đánh, màu, hô UNO và thao tác luật cần thiết | Server xác thực; thông báo lý do từ chối; không lộ thông tin riêng |
+| Nối từ | Từ mồi, tiếng khóa, nhập realtime, validate/dictionary vote, lượt và lịch sử | 2–6 người; server chốt từ/phiếu/deadline; từ chưa biết chỉ có hiệu lực trong ván khi nhóm duyệt |
 | Kết thúc | Hiện người thắng hoặc lý do hủy ván | Có nút trở về phòng chờ để chơi lại; reset sẵn sàng, giữ phòng và ghế hợp lệ |
 | Nối lại | Reload hoặc mạng gián đoạn ngắn | Giữ đúng ghế, tay bài và ván; socket cũ không điều khiển được |
 
@@ -35,13 +34,21 @@ Hai người trên hai thiết bị mở web, nhập biệt danh, vào cùng ph�
 
 Các mốc thời gian trên là lựa chọn MVP, có thể điều chỉnh có ghi nhận khi thử thực tế.
 
+## Nối từ NT-VI-1
+
+- Server chọn người bắt đầu và từ mồi; tiếng cuối khóa sẵn, người chơi nhập một tiếng. Sai từ có thể thử lại mà không reset 30 giây.
+- Từ chưa có trong dictionary thử nghiệm tạo proposal vote tối đa 15 giây. Chỉ người khác còn active được bỏ phiếu; strict majority trên toàn bộ eligible voter để nhận; timeout bác.
+- Hết giờ hoặc chịu thua loại người khỏi ván; người cuối active thắng. Pause/reconnect giữ deadline còn lại.
+- Bộ từ điển hiện có 47.877 mục sau heuristic; semantic review mẫu 200 mục chưa hoàn tất và quyền dữ liệu chưa xác minh. Đây là bản thử nghiệm, không phải nguồn kết luận ngôn ngữ hoặc data public đã cleared.
+- Luật đầy đủ: [NT-VI-1](./noitu-rules.md).
+
 ## Ngoài phạm vi
 
-Game khác, bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, điểm nhiều ván, lịch sử lâu dài, đồng bộ nhiều backend.
+Game khác ngoài UNO và Nối từ, bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, điểm nhiều ván, lịch sử lâu dài, đồng bộ nhiều backend.
 
 ## Tiêu chí nghiệm thu cuối
 
-- Chạy trọn tạo → tham gia → sẵn sàng → bắt đầu → đánh/rút/chọn màu → kết thúc → chơi lại.
+- Chạy trọn tạo → tham gia → sẵn sàng → bắt đầu → chơi → kết thúc → chơi lại trong từng game.
 - Có trường hợp kiểm thử luật đặc biệt, bắt UNO và giải quyết Wild Draw Four theo quyết định đã ghi.
 - Hai thiết bị dùng cùng URL LAN/production, không dùng mock đối thủ.
 - Có kiểm tra mobile không tràn trang, mất mạng/nối lại, và packet không lộ bài.

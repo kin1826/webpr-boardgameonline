@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import sirv from 'sirv';
 import {
-  gameActionSchema, gameEffectSchema, kickSchema, readySchema, resumeSchema, roomCommandSchema,
+  GAME_CATALOG, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema,
   roomCreateSchema, roomJoinSchema, visibilitySchema,
 } from '@banban/shared';
+import { loadNoituDictionary, type RuntimeNoituDictionary } from './noitu-dictionary.ts';
 import { RoomError, RoomService } from './rooms.ts';
 
 type Ack = (value: Record<string, unknown>) => void;
@@ -14,10 +15,15 @@ type ActiveSession = { roomId: string; playerId: string; generation: number };
 type ClientSocket = Socket & { data: Socket['data'] & { activeSession?: ActiveSession } };
 type Cached = { fingerprint: string; response: Record<string, unknown>; expiresAt: number };
 
-export function createRealtimeServer(options: { serveWeb?: boolean; roomService?: RoomService; maxEventsPerWindow?: number } = {}) {
+export function createRealtimeServer(options: { serveWeb?: boolean; roomService?: RoomService; maxEventsPerWindow?: number; noitu?: RuntimeNoituDictionary | null } = {}) {
   let io: SocketServer;
   const http = createServer();
-  const roomService = options.roomService ?? new RoomService();
+  let noitu = options.noitu;
+  if (noitu === undefined) {
+    try { noitu = loadNoituDictionary(); }
+    catch { noitu = null; }
+  }
+  const roomService = options.roomService ?? new RoomService({ noitu });
   roomService.setLifecycleHandlers({
     onRevoke: (socketId) => {
       const client = io?.sockets.sockets.get(socketId);
@@ -28,6 +34,9 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       }
     },
     onChanged: (roomId) => broadcast(roomId),
+    onNoituDraft: (roomId, draft) => {
+      io?.to('room:' + roomId).emit(draft ? 'noitu:draft:changed' : 'noitu:draft:clear', draft ?? { roomId });
+    },
     onClosed: (payload, socketIds) => {
       for (const socketId of socketIds) {
         const client = io?.sockets.sockets.get(socketId);
@@ -163,7 +172,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Hãy nhập biệt danh và chọn chế độ phòng.' });
       const value = parsed.data;
       idempotentRequest(socket, value.actionId, value, ack, () => {
-        const created = roomService.create(value.nickname, value.visibility, socket.id);
+        const created = roomService.create(value.nickname, value.visibility, socket.id, value.gameKey);
         socket.data.activeSession = { roomId: created.room.id, playerId: created.seat.id, generation: created.seat.generation };
         void socket.join('room:' + created.room.id);
         return { ok: true, actionId: value.actionId, credentials: created.credentials, snapshot: roomService.snapshot(created.room, created.seat.id) };
@@ -198,6 +207,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     socket.on('room:visibility', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema.extend({ visibility: visibilitySchema.shape.visibility }).strict(), ack, (room, seat, value) => roomService.setVisibility(room, seat, value.visibility)));
     socket.on('room:start', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema, ack, (room, seat) => {
       roomService.start(room, seat);
+      if (room.gameKey === 'noitu') return;
       const game = room.game!;
       return { gameEffect: { eventId: `${game.gameId}:${game.revision}`, roomId: room.id, gameId: game.gameId, revision: room.revision, gameRevision: game.revision, actionType: 'start', actorId: seat.id, direction: game.direction, ...(game.currentColor ? { currentColor: game.currentColor } : {}) } };
     }));
@@ -239,6 +249,20 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       };
       return { gameEffect: effect };
     }));
+    socket.on('noitu:action', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, noituActionSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'noitu' || !room.noituGame || room.noituGame.gameId !== value.gameId) throw new RoomError('STALE_GAME', 'Ván đã thay đổi. Hãy chờ bàn chơi cập nhật.');
+      roomService.noituAction(room, seat, value.expectedRevision, value);
+    }));
+    socket.on('noitu:draft', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      const parsed = noituDraftSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Bản đang nhập chưa hợp lệ.' });
+      try {
+        const { room, seat } = current(socket, parsed.data.roomId);
+        roomService.updateNoituDraft(room, seat, parsed.data);
+        ack({ ok: true, sequence: parsed.data.sequence });
+      } catch (error) { ack(failure(error)); }
+    });
     socket.on('room:leave', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
       const parsed = roomCommandSchema.safeParse(raw);
@@ -280,6 +304,10 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     if (pathname === '/api/rooms' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(roomService.publicRooms())); return;
+    }
+    if (pathname === '/api/games' && req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key) })))); return;
     }
     if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
   });

@@ -1,85 +1,62 @@
-# Định hướng UI/UX và sử dụng skill
+# UI/UX hiện hành
 
-## Sửa bàn chơi BB-UNO-1 — đã triển khai, chờ Terra nghiệm thu
+Đây là đặc tả giao diện đang dùng; lịch sử các lần thay đổi và giới hạn kiểm chứng được gom trong [tóm tắt dự án](./reports/project-summary.md). Luật thực thi theo [BB-UNO-1](./uno-rules.md) và [NT-VI-1](./noitu-rules.md).
 
-Theo `uno-rules.md` và `uno-fix-plan.md`: lá sai tối nhưng đọc được và disabled; không có lá hợp lệ highlight Rút; đang phạt chỉ cho cộng phù hợp hoặc Nhận N lá; không challenge. Viền bàn + chữ/ký hiệu theo màu hiện tại, dialog chọn màu có focus rõ. Phòng đóng thông báo và đưa người chơi về sảnh; offline tạm thời có trạng thái riêng. Bàn live, bản xem thử và màn luật đã được cập nhật. Test và giới hạn xác minh ở [sol-uno-fix-report.md](./sol-uno-fix-report.md).
+## Hướng thiết kế
 
-## Motion UNO — đã triển khai, chờ kiểm tra trực quan
+- Palette B “Đêm tím”: nền `#12101D`, bàn `#29213F`, accent `#B9A2FF`; token thực tế nằm trong `src/styles/theme.css`. Màu lá đỏ/vàng/xanh lá/xanh dương được giữ riêng để nhận diện.
+- Phong cách đêm chơi cùng bạn bè, bố cục gọn, minh họa tự vẽ. Trang chủ thấy ngay danh sách game, biệt danh ở header, ô nhập mã ở giữa; không có hero quảng cáo lớn hoặc số người online giả.
+- UNO và Nối từ là game chơi được; Caro/Gián điệp vẫn là thẻ sắp ra mắt. Tạo phòng sau khi chọn game, không có nút tạo phòng trực tiếp trong hero. Không đăng nhập/đăng ký.
+- Toàn bộ giao diện tiếng Việt. Dùng font hỗ trợ dấu và system fallback, không phụ thuộc font mạng. Footer ghi dự án không chính thức, không liên kết Mattel.
 
-Lá cơ sở dùng radius 6px. Lá số/rút nhẹ, +2/+4/Bỏ lượt đập và nhấn viền bàn, Reverse xoay ký hiệu, chia bài/rút bài/UNO/kết quả có phản hồi ngắn. Tùy chọn “Giảm hiệu ứng” lưu localStorage; `prefers-reduced-motion` tắt animation và rung. Server phát `game:effect` sau snapshot; client kiểm tra eventId/revision và bỏ trùng/cũ. Chi tiết test và giới hạn browser trong [uno-motion-report.md](./uno-motion-report.md).
+## Màn hình
 
-## Motion UNO v2 — đã code, chờ Terra kiểm tra trực quan
-
-Rung scene felt theo tổng phạt, lá đánh bay từ người chơi, tray action dưới felt và tay bài mobile xếp hàng chồng với xác nhận tap. Code/test/build và giới hạn browser được ghi trong [uno-motion-v2-report.md](./uno-motion-v2-report.md).
-
-## Điều chỉnh trang chủ ngày 13/11/2026 — đã triển khai
-
-Đặc tả và kết quả: [Nâng cấp trang chủ — Đêm tím câu lạc bộ](./homepage-redesign.md). Phần trang chủ trong code đã được cập nhật; các mô tả trang chủ và token cũ bên dưới chỉ lưu lịch sử quyết định, còn đặc tả mới là hiện trạng.
-
-Hướng thị giác: một bàn chơi mang chất poster câu lạc bộ, bố cục bất đối xứng, minh họa bài riêng, tím mực và chữ sáng. Giữ phân cấp thao tác rõ; glow, noise và float chỉ hỗ trợ không khí. Không dùng bố cục landing quảng cáo kéo dài hoặc dữ liệu hoạt động giả.
-
-Trạng thái: palette B đã chọn và giao diện prototype đã dựng; chưa đo tương phản tự động hoặc thử trên điện thoại vật lý.
-
-## Cơ sở lựa chọn
-
-Đã đọc guide tại `/Users/admin/.agents/skills/SKILLS_GUIDE.md`, hai `SKILL.md` và `lucian-uxui/references/porting.md`.
-
-- **ui-ux-pro-max**: tra `multiplayer card game dark --design-system`; dữ liệu trả về hướng nền tối và bàn xanh nhưng không khớp palette B. Đề xuất showcase/3D/WebGL không phù hợp luồng vào chơi nhanh và yêu cầu không WebGL nên không áp dụng. Người dùng chọn palette B. Tra bổ sung `game interface minimal --domain style` có kết quả minimalism; chỉ lấy phân cấp gọn và motion nhẹ, không bê bố cục doanh nghiệp vào bàn chơi.
-- Tra UX `touch target keyboard focus` trả về hướng dẫn vùng chạm và focus. Chọn mục tiêu nút 44×44 CSS px cho sản phẩm, không gọi đó là mức WCAG bắt buộc cho mọi trường hợp.
-- Tra React `state rendering accessibility`, rồi thử lại `state`, đều không có kết quả. Hướng dẫn React trong kế hoạch là lựa chọn kỹ thuật thông thường; không tuyên bố được xác minh bởi dữ liệu skill.
-- **lucian-uxui**: cung cấp hành vi thành phần cụ thể, giữ hình dáng/motion và ánh xạ màu vào token tổng thể. Không giao engine hoặc luật cho skill UI.
-- Chưa dùng `find-skills`: hai skill đã đủ cho tài liệu UI, công việc backend/kiểm thử dùng năng lực lập trình chung. Không cài skill mới.
-
-## Palette đã chọn: B — Đêm tím
-
-Người dùng chọn palette B ngày 12/11/2026 sau khi xem ba đề xuất. Prototype áp dụng nền `#12101D`, bàn `#29213F`, accent `#B9A2FF`; màu lá đỏ/vàng/xanh lá/xanh dương giữ riêng để nhận diện bài. Bề mặt, chữ, viền, mint và coral được ánh xạ qua custom properties trong `src/styles/theme.css`.
-
-## Thiết kế tổng thể
-
-Phong cách game night, trọng tâm là bàn và tay bài. Trang chủ chỉ giới thiệu ngắn cùng UNO và form; không cần social proof, bảng giá hoặc nhiều CTA.
-
-| Vai trò | Giá trị đề xuất |
+| Màn hình | Nội dung chính |
 |---|---|
-| Nền trang | `#12101D` |
-| Surface/panel | `#1A1728` / `#211D33` |
-| Bàn | `#29213F` |
-| Chữ chính/phụ | `#F6F2FF` / `#AAA3BC` |
-| CTA | `#B9A2FF`, chữ tím than |
-| Màu lá | Đỏ, vàng, xanh lá, xanh dương; có tên màu/ký hiệu |
-| Font | Inter có Vietnamese subset hoặc system sans fallback |
-| Khoảng cách | Thang 4/8/12/16/24/32 px |
+| Sảnh | Trò chơi, đổi biệt danh, nhập mã/vào phòng, Luật chơi |
+| Giới thiệu UNO | Tạo phòng public/private, luật và bàn xem thử có nhãn demo |
+| Giới thiệu Nối từ | Tạo phòng public/private, luật NT-VI-1 và phòng công khai đúng game |
+| Phòng chờ | Mã/link sao chép, ghế, host, kết nối, ready; chỉ host bắt đầu khi đủ điều kiện |
+| Bàn desktop | Bài mình dưới, đối thủ quanh bàn chỉ hiện tên/số lá, pile và màu/chiều/lượt giữa bàn |
+| Bàn mobile | Đối thủ gọn phía trên, felt gọn, tray trên tay bài; hand chồng theo hàng, cuộn dọc khi dài |
+| Kết quả | Hiện thắng ngay sau lá cuối hợp lệ, host chọn chơi lại trong phòng |
+| Bàn Nối từ | Dải người chơi ngang, timeline ô chữ theo lượt, draft/vote inline và dock nhập ở đáy; lịch sử tối đa theo snapshot |
 
-Palette được đưa vào prototype; cần đo cặp chữ/nền và trạng thái focus/disabled trước nghiệm thu sản phẩm. Font đang dùng system stack Inter fallback để tránh phụ thuộc mạng.
+Bàn ban đầu chưa có lá bỏ, hiện “Chờ lá đầu” và “Chưa mở bàn”. Sau khi đánh, lá bỏ nằm lại theo snapshot server.
 
-## Màn hình và trạng thái
+## Thao tác và trạng thái
 
-1. **Trang chủ:** UNO, tên, Tạo phòng, Tham gia bằng mã; link mời điền mã sẵn; lỗi dưới field; Luật chơi và tuyên bố không chính thức.
-2. **Phòng chờ:** mã/link, copy feedback, 2–6 ghế, host, online/offline và ready. Nút Bắt đầu chỉ dành host, ghi điều kiện thiếu bằng lời.
-3. **Bàn desktop:** bài mình ở dưới; đối thủ quanh bàn, tên và số lá; giữa là chồng rút, lá bỏ trên cùng, màu bằng chữ, chiều bằng biểu tượng kèm nhãn; lượt nổi bật.
-4. **Bàn mobile:** đối thủ xếp vùng trên; bàn trung tâm gọn; hand trong vùng cuộn ngang riêng có chỉ dẫn, trang không tràn ngang. Không ép toàn bộ hand thành lá quá nhỏ khi bị phạt nhiều.
-5. **Hành động:** chạm lá hợp lệ; Wild mở chọn màu trước khi gửi. Có nút rút/giữ lá, hô UNO, bắt UNO và nhận/cộng phạt đúng phase. Không có challenge +4 trong BB-UNO-1. Không chỉ dùng hover hoặc kéo thả.
-6. **Mất mạng:** banner bền vững, phân biệt đang kết nối/đang nối lại/phiên bị thay/phòng đã mất. Khi pause vô hiệu hóa hành động và nêu hạn nối lại từ server.
-7. **Kết quả:** tên người thắng hoặc lý do hủy/bế tắc; host về chờ chơi lại, người khác thấy trạng thái chờ host.
-8. **Luật chơi:** bản tóm tắt Việt từ hồ sơ luật đã chốt, khác biệt số hóa và nguồn; đọc được cả ngoài phòng.
+- Desktop click lá hợp lệ để đánh. Mobile chạm lần đầu nâng lá, chạm lại cùng lá để đánh; không cần double-tap nhanh hoặc nút xác nhận riêng. Chạm lá khác đổi lựa chọn; cuộn tay bài hủy lựa chọn.
+- Wild/+4 mở dialog chọn màu trước khi gửi intent; chọn màu chưa phải một lượt riêng. Không challenge +4.
+- Lá sai tối và disabled; lá hợp lệ sáng. Lá chọn nâng khoảng 15px trên mobile; không dùng ring trang trí dày. Khi không có lá phù hợp, nhấn nút Rút bằng nền/viền nhẹ và lời chỉ dẫn.
+- Tray giữ chỗ cho UNO, bắt UNO, phạt, nhận bài và giữ lá; chỉ hiển thị thao tác phù hợp. Thông báo không đẩy chiều cao bàn hoặc che hand.
+- Màu hiện tại có cả chữ và viền; chiều có mũi tên kèm chữ, lượt có nhãn rõ. Mất mạng hiện trạng thái/pause và hạn chờ; phòng đóng đưa về sảnh với lý do.
+- Giữ nút và vùng chạm dễ bấm; không chỉ dùng hover/kéo thả. Không để toàn trang tràn ngang hoặc thu nhỏ cả bàn desktop lên mobile.
 
-## Thành phần Lucian đã port vào prototype
+## Motion
 
-Catalog CLI dùng cache ngày 07/11/2026 do mạng nguồn không khả dụng ngày khảo sát. `get` đã được chạy sau khi cấp quyền mạng cho lệnh CLI và mã/giấy phép được xem trước khi port.
+- Lá tự vẽ, số đen, radius cơ sở 6px. Lá số bay nhẹ; +2/+4/Skip bay rồi đập/rung, tăng lực theo tổng phạt có trần. Reverse nhấn chiều mới.
+- Overlay bay và FLIP hand chỉ trình bày sự kiện server xác nhận. `game:effect` phải khớp room/game revision, chống trùng và bỏ event cũ; animation không khóa lượt hay quyết định luật.
+- Rung lớp hình ảnh bàn và chồng rút; hit target, tray, hand, header và dialog đứng yên. Dọn overlay/WAAPI khi đổi event, resize/cuộn, tab nền, disconnect, rematch hoặc unmount.
+- Checkbox “Giảm hiệu ứng” lưu localStorage, kết hợp OS reduced motion. Giữ trạng thái cuối rõ ràng khi tắt motion; không replay hiệu ứng khi đổi preference. Thông số và giới hạn xem trong báo cáo hợp nhất.
+- Nối từ dùng chuyển cảnh nhẹ; countdown không đọc liên tục và không dùng animation quyết định lượt. Draft có nhãn “Đang nhập”, không trộn với lịch sử. Proposal đang chờ vote được phân biệt bằng chữ/viền ngoài màu.
 
-| Ứng viên | Vị trí dự kiến | Điều kiện lựa chọn |
-|---|---|---|
-| [#008 Copy button that turns into a check](https://lucianlabs.dev/uxui-prompt/#008) | Chọn link/mã/cả hai rồi sao chép trong phòng chờ | Đã port vào `src/components/CopyInviteCard.tsx`; nội dung Việt; có clipboard fallback |
-| [#033 Inline title editing](https://lucianlabs.dev/uxui-prompt/#033) | Sửa biệt danh trong hộp thoại | Đã port vào `src/components/InlineNicknameEdit.tsx`; Enter lưu, Escape hủy, lưu localStorage qua component cha |
+## Nối từ
 
-Tra `loading reconnect` không có ứng viên phù hợp: kết quả là nút liquid glass và thẻ đăng nhập. Prototype tự thiết kế banner reconnect theo token cho bàn mẫu.
+- Bàn dùng dòng diễn biến dọc: từ mồi/lịch sử được trình bày thành bubble, lượt mình bên phải và lượt người khác bên trái; player strip ngang có thể cuộn riêng khi 5–6 ghế. Dock nhập ở dưới timeline.
+- Các tiếng trình bày thành nhóm ô chữ nhỏ, bo 4px; mỗi grapheme tiếng Việt đã NFC là một ô, giữ nguyên dấu. Tiếng cuối nổi bật bằng nền/nhãn, không chỉ bằng màu. Input vẫn là một ô văn bản thật hỗ trợ IME; không có input từng chữ.
+- Khi lượt người khác, có thể thấy draft tạm thời với nhãn rõ; draft không được trình bày như từ đã chốt. Người bị loại vẫn xem tiếp nhưng không có ô gửi/vote.
+- Khi server tạo proposal, hiện từ đề xuất inline với trạng thái chưa chấp nhận, tally/thời gian và chỉ nút phù hợp cho người có quyền. Một hàng active có key theo game/lượt xuyên suốt nhập → vote → bác → nhập lại. Khi bị bác, chỉ grapheme tiếng thứ hai vỡ đồng thời ngoài flow tại vị trí cũ; prefix, bubble và hàng vẫn tồn tại để nhập lại ngay. Không tạo thêm hàng pending/rejected hoặc xóa bubble sau effect. Dock giữ footprint ổn định giữa vote và nhập để hàng không dịch trên mobile. Lịch sử chỉ nhận từ server. Đã kiểm tra DOM headless; Terra còn thử hai browser và thiết bị thật. Tổng kết tại [hồ sơ Nối từ](./reports/noitu/summary.md).
+- Hàng active rộng tối đa 640 px trên desktop; chữ đang nhập/vote không xuống dòng, cuộn ngang trong bubble khi dài. Fragment bác bỏ ở ngoài vùng cuộn để không bị cắt. Snapshot vote/reject tới liền nhau vẫn tạo hiệu ứng từ dữ liệu proposal; reduced motion vẫn tắt hiệu ứng. Chi tiết kiểm tra ở [tổng kết Nối từ](./reports/noitu/summary.md).
+- Timeline cuộn độc lập bằng `scrollTop` của chính timeline; mặc định bám cuối, giữ chế độ bám qua resize/bàn phím và draft. Chỉ thao tác cuộn lên chủ động mới dừng bám; nút “Về lượt hiện tại” đưa về cuối. Gửi thành công và lượt người đang chơi trở lại sau bác bỏ bật bám lại; lỗi gửi giữ input/caret.
+- Theo dõi thay đổi timeline bằng `ResizeObserver` và `visualViewport`, gom cập nhật theo animation frame, dọn observer/listener/RAF. Không dùng `scrollIntoView` để dịch trang bên ngoài hoặc cuộn mượt mỗi phím/countdown.
+- Tôn trọng vùng an toàn/bàn phím động trên mobile; không để dock che input hoặc focus. Nút gửi/vote/chịu thua có hit target dễ chạm và focus-visible. Chịu thua dùng dialog trong web, focus mặc định “Tiếp tục chơi”, hỗ trợ Tab/Escape/backdrop, kiểm tra lại lượt/kết nối và khóa gửi lặp.
+- Mọi thông tin về từ điển ghi “Từ điển thử nghiệm”; không tự dựng nghĩa hoặc quảng bá dữ liệu đã được duyệt.
 
-Khi tiếp tục UI: search theo từng phần → chọn ID → get đúng ID → tokens một lần → rà mã → port JSX/plain scoped CSS → kết nối handler thật. Các phần tử đã dùng giữ comment MIT đầu file và chuyển động CSS gốc. Copy timer được cleanup khi unmount; thử build chạy với React StrictMode.
+## Accessibility và skill
 
-## Tiêu chí tương tác
-
-- Body 16 px, label rõ; biểu tượng SVG có tên truy cập. Mỗi lá đọc được loại/số/màu qua accessible name.
-- Nút khoảng 44×44 px trở lên; khoảng cách đủ chạm; lá trong hand không bị lớp khác che điểm chạm. Nếu cần mô hình chạm để chọn rồi xác nhận, phải kiểm tra tốc độ và không thêm trì hoãn vào cửa sổ UNO.
-- Focus rõ, không bị thanh tay bài che; dialog có quản lý focus, Escape theo trạng thái hợp lệ, trả focus về vị trí cũ. Không bẫy người dùng trong dialog mạng.
-- `aria-live` thông báo lượt/lỗi có kiểm soát; không đọc lại toàn bộ tay bài mỗi snapshot.
-- Hiệu ứng lá tự vẽ ngắn, ưu tiên transform/opacity; reduced motion vẫn có trạng thái cuối đầy đủ. Animation không quyết định hợp lệ hoặc thời gian bắt UNO.
-- Ghi chú lịch sử của prototype trước realtime: đã mở Chrome ở desktop và viewport 390×844 để kiểm tra bàn không tràn ngang, tay bài cuộn riêng. Đợt Sol không mở được browser vì browser host unavailable; giao diện hiện hành vẫn cần kiểm tra lại theo [báo cáo kiểm chứng](./verification-report.md), gồm 360/375/768/1280/1440 px, safe area, zoom và tương phản định lượng.
+- Lá có accessible name gồm màu/số/loại; số/ký hiệu bổ sung cho màu. Focus-visible bàn phím mảnh, rõ; pointer/touch không giữ halo.
+- Dialog có quản lý focus và trả focus; Escape theo trạng thái hợp lệ. Thông báo dùng live region có kiểm soát, không đọc lại cả hand mỗi snapshot.
+- Kiểm tra contrast, zoom, safe area, keyboard và reduced motion trên browser thật trước nghiệm thu. Build không chứng minh UI đạt.
+- Dùng ui-ux-pro-max cho phân cấp, responsive, focus và motion. Lucian cần search catalog/get trước khi port; giữ MIT và ánh xạ token vào theme.
+- Đã port [Lucian #008 Copy button](https://lucianlabs.dev/uxui-prompt/#008) tại `src/components/CopyInviteCard.tsx` và [#033 Inline title editing](https://lucianlabs.dev/uxui-prompt/#033) tại `src/components/InlineNicknameEdit.tsx`. Không dùng thành phần catalog không khớp chỉ để thêm hiệu ứng.

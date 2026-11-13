@@ -3,6 +3,7 @@ import { io as connect, type Socket } from 'socket.io-client';
 import { createRealtimeServer } from './index.ts';
 import { RoomService } from './rooms.ts';
 import type { UnoCard } from '@banban/uno';
+import type { NoituDictionary } from '@banban/noitu';
 
 type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; credentials?: { roomId: string; roomCode: string; playerId: string; token: string } };
 function emitAck(socket: Socket, event: string, payload?: unknown): Promise<Result> {
@@ -221,6 +222,52 @@ it('hai socket xác thực màu, cộng/nhận phạt, reload host, rematch và 
   active.rooms.destroyAll();const closed=await Promise.all(notices);expect(closed.every(p=>p.roomId===roomId&&p.reason==='shutdown')).toBe(true);
   const lost=await emitAck(a,'session:resume',{roomId,playerId:cred.playerId,token:cred.token});expect(lost.code).toBe('ROOM_NOT_FOUND');
 });
+
+it('hai socket chơi Nối từ, draft riêng theo lượt, vote, thắng, rematch và chặn UNO action chéo game',async()=>{
+  const words=new Set(['nấu cơm','cơm nước','nước lọc']);
+  const dictionary:NoituDictionary={version:'socket-fixture-1',has:word=>words.has(word),isDenied:()=>false};
+  active=createRealtimeServer({serveWeb:false,roomService:new RoomService({noitu:{dictionary,seedWords:['nấu cơm']}})});
+  await new Promise<void>(resolve=>active!.http.listen(0,'127.0.0.1',resolve));
+  const address=active.http.address();if(!address||typeof address==='string')throw new Error('Không lấy được cổng test.');
+  const url='http://127.0.0.1:'+address.port;
+  const open=async()=>{const socket=connect(url,{forceNew:true,transports:['websocket'],reconnection:false});clients.push(socket);await new Promise<void>((resolve,reject)=>{socket.once('connect',resolve);socket.once('connect_error',reject)});return socket;};
+  const a=await open(),b=await open();
+  let latestA:any,latestB:any;
+  a.on('room:snapshot',snapshot=>{latestA=snapshot;});b.on('room:snapshot',snapshot=>{latestB=snapshot;});
+  const created=await emitAck(a,'room:create',{actionId:crypto.randomUUID(),nickname:'Mây',visibility:'private',gameKey:'noitu'});
+  expect(created.ok).toBe(true);expect(created.snapshot!.gameKey).toBe('noitu');
+  const owner=created.credentials!;latestA=created.snapshot;
+  const joined=await emitAck(b,'room:join',{actionId:crypto.randomUUID(),nickname:'Khoa',code:owner.roomCode});
+  expect(joined.ok).toBe(true);latestB=joined.snapshot;
+  const ready=await emitAck(b,'room:ready',action(owner.roomId,joined.snapshot!.revision,{ready:true}));expect(ready.ok).toBe(true);
+  const started=await emitAck(a,'room:start',action(owner.roomId,ready.snapshot!.revision));expect(started.ok).toBe(true);
+  expect(started.snapshot!.gameKey).toBe('noitu');expect(started.snapshot!.game.phase).toBe('turn');
+  await waitForSnapshot(b,()=>latestB,started.snapshot!.revision);latestA=started.snapshot;
+  const gameId=started.snapshot!.game.gameId as string;
+  const turnId=started.snapshot!.game.turnId as string;
+  const actorId=started.snapshot!.game.currentPlayerId as string;
+  const actor=actorId===owner.playerId?a:b, other=actor===a?b:a;
+  const draftEvent=new Promise<any>(resolve=>other.once('noitu:draft:changed',resolve));
+  const draft=await emitAck(actor,'noitu:draft',{roomId:owner.roomId,gameId,turnId,sequence:1,suffix:'lạ'});
+  expect(draft.ok).toBe(true);
+  await expect(draftEvent).resolves.toMatchObject({roomId:owner.roomId,gameId,turnId,suffix:'lạ',prefix:'cơm'});
+  const actorRevision=(actor===a?latestA:latestB).revision as number;
+  const proposal=await emitAck(actor,'noitu:action',action(owner.roomId,actorRevision,{type:'submit',gameId,turnId,suffix:'lạ'}));
+  expect(proposal.ok).toBe(true);expect(proposal.snapshot!.game.phase).toBe('voting');
+  expect(proposal.snapshot!.game.currentWord).toBe('nấu cơm');
+  expect(proposal.snapshot!.game).not.toHaveProperty('usedWords');
+  const crossGame=await emitAck(actor,'game:action',action(owner.roomId,proposal.snapshot!.revision,{type:'draw',gameId}));
+  expect(crossGame.ok).toBe(false);
+  const voter=other;
+  const vote=await emitAck(voter,'noitu:action',action(owner.roomId,proposal.snapshot!.revision,{type:'vote',gameId,turnId,proposalId:proposal.snapshot!.game.proposal.id,decision:'accept'}));
+  expect(vote.ok).toBe(true);expect(vote.snapshot!.game.currentWord).toBe('cơm lạ');
+  expect(vote.snapshot!.game.history.at(-1).acceptedByGroup).toBe(true);
+  const nextId=vote.snapshot!.game.currentPlayerId as string;
+  const last=await emitAck(nextId===owner.playerId?a:b,'noitu:action',action(owner.roomId,vote.snapshot!.revision,{type:'giveUp',gameId,turnId:vote.snapshot!.game.turnId}));
+  expect(last.ok).toBe(true);expect(last.snapshot!.phase).toBe('finished');expect(last.snapshot!.game.winnerId).toBe(actorId);
+  const rematch=await emitAck(a,'room:rematch',action(owner.roomId,last.snapshot!.revision));
+  expect(rematch.ok).toBe(true);expect(rematch.snapshot!.phase).toBe('waiting');expect(rematch.snapshot!.game).toBeNull();
+},10000);
 
 it('hai socket chơi hết một ván shuffle production, bảo toàn 108 lá qua mọi hành động',async()=>{
   active=createRealtimeServer({serveWeb:false,maxEventsPerWindow:5000});

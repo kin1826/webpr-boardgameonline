@@ -106,3 +106,90 @@ describe('Lifecycle notifications',()=>{
     expect(()=>service.getRoom(h.room.id)).toThrow();expect(()=>service.resume(h.room.id,g.seat.id,g.credentials.token,'g2')).toThrow();
   });
 });
+
+describe('Phòng Nối từ và timer theo game',()=>{
+  const noitu={dictionary:{version:'room-fixture',has:(word:string)=>['nấu cơm','cơm nước','nước lọc'].includes(word),isDenied:(word:string)=>word==='cơm cấm'},seedWords:['nấu cơm']};
+  it.each([2,3,4,5,6])('chạy được phòng Nối từ với %i người và không chiếu state UNO',count=>{
+    const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');
+    const guests=Array.from({length:count-1},(_,i)=>service.join(host.room.code,'Khách '+i,'g'+i));
+    for(const guest of guests)service.ready(host.room,guest.seat,true);
+    service.start(host.room,host.seat);
+    const snapshot=service.snapshot(host.room,host.seat.id);
+    expect(snapshot.gameKey).toBe('noitu');expect(snapshot.phase).toBe('playing');
+    expect((snapshot.game as {currentWord:string}).currentWord).toBe('nấu cơm');
+    expect(JSON.stringify(snapshot)).not.toContain('usedWords');
+    expect(JSON.stringify(snapshot)).not.toContain('drawPile');
+    expect(snapshot.players.every(player=>player.cardCount===undefined)).toBe(true);
+  });
+
+  it('mỗi phòng giữ riêng game, sai gameId và sai event game bị chặn',()=>{
+    let randomCounter=0;const service=new RoomService({noitu,randomInt:(max)=>{const value=randomCounter%max;randomCounter++;return value;}});services.push(service);
+    const u=service.create('UNO','private','u');const n=service.create('Từ','private','n','noitu');
+    const ug=service.join(u.room.code,'U2','u2');const ng=service.join(n.room.code,'N2','n2');
+    service.ready(u.room,ug.seat,true);service.ready(n.room,ng.seat,true);service.start(u.room,u.seat);service.start(n.room,n.seat);
+    expect(u.room.game).not.toBeNull();expect(u.room.noituGame).toBeNull();
+    expect(n.room.game).toBeNull();expect(n.room.noituGame).not.toBeNull();
+    expect(()=>service.gameAction(n.room,n.seat,n.room.revision,{type:'draw'})).toThrowError(/không dùng được/);
+  });
+
+  it('unknown proposal giữ turn và chuyển lượt chỉ sau phiếu quyết định',()=>{
+    const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    const game=host.room.noituGame!;const base={roomId:host.room.id,gameId:game.gameId,turnId:game.turnId};
+    service.noituAction(host.room,host.seat,host.room.revision,{...base,actionId:'e5e71e07-8bd3-48d4-9eb6-8fd01a5ead77',expectedRevision:host.room.revision,type:'submit',suffix:'lạ'});
+    expect(host.room.noituGame?.phase).toBe('voting');expect(host.room.noituGame?.currentWord).toBe('nấu cơm');
+    const proposal=host.room.noituGame!.proposal!;
+    service.noituAction(host.room,guest.seat,host.room.revision,{...base,actionId:'341d4c12-ad86-48f9-b95c-a2c02d530a80',expectedRevision:host.room.revision,type:'vote',proposalId:proposal.id,decision:'accept'});
+    expect(host.room.noituGame?.phase).toBe('turn');expect(host.room.noituGame?.currentWord).toBe('cơm lạ');expect(host.room.noituGame?.currentPlayerId).toBe(guest.seat.id);
+  });
+
+  it('draft realtime chỉ nhận lượt hiện hành, sequence cũ bị loại, draft không bump revision',()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
+    const changed=vi.fn();const service=new RoomService({noitu,randomInt:()=>0,onNoituDraft:changed});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    const state=host.room.noituGame!;const rev=host.room.revision;
+    const draft={roomId:host.room.id,gameId:state.gameId,turnId:state.turnId,sequence:1,suffix:'nư'};
+    const notice=service.updateNoituDraft(host.room,host.seat,draft);
+    expect(notice.prefix).toBe('cơm');expect(notice.suffix).toBe('nư');expect(host.room.revision).toBe(rev);
+    expect(service.snapshot(host.room,guest.seat.id).game).not.toHaveProperty('draft');
+    expect(()=>service.updateNoituDraft(host.room,host.seat,{...draft,sequence:1,suffix:'cũ'})).toThrowError(/cũ/);
+    expect(changed).toHaveBeenCalledWith(host.room.id,notice);
+  });
+
+  it('clear draft khi proposal mở đặt lại sequence để người chơi nhập lại sau khi bị bác',()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
+    const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    const game=host.room.noituGame!;const base={roomId:host.room.id,gameId:game.gameId,turnId:game.turnId};
+    service.updateNoituDraft(host.room,host.seat,{...base,sequence:1,suffix:'lạ'});
+    service.noituAction(host.room,host.seat,host.room.revision,{...base,actionId:'7fa91140-2edb-4d62-b5d1-36c1c16bd685',expectedRevision:host.room.revision,type:'submit',suffix:'lạ'});
+    const proposal=host.room.noituGame!.proposal!;
+    service.noituAction(host.room,guest.seat,host.room.revision,{...base,actionId:'1e9ae910-4961-4e61-afdb-97f8e89035bb',expectedRevision:host.room.revision,type:'vote',proposalId:proposal.id,decision:'reject'});
+    expect(host.room.noituGame?.phase).toBe('turn');
+    expect(service.updateNoituDraft(host.room,host.seat,{...base,sequence:1,suffix:'mới'}).suffix).toBe('mới');
+  });
+
+  it('deadline lượt kết thúc đúng biên, người hết giờ bị loại và callback cũ không phá rematch',async()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
+    const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    const oldGameId=host.room.noituGame!.gameId;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(host.room.phase).toBe('finished');expect(host.room.noituGame?.winnerId).toBe(guest.seat.id);
+    service.rematch(host.room,host.seat);service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    expect(host.room.noituGame?.gameId).not.toBe(oldGameId);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(host.room.phase).toBe('finished');expect(host.room.noituGame?.gameId).not.toBe(oldGameId);
+  });
+
+  it('mất kết nối tạm dừng đúng thời gian còn lại, resume tiếp tục chứ không tặng lượt mới',()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
+    const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
+    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    vi.advanceTimersByTime(9_000);service.disconnect(host.room.id,host.seat.id,'h');
+    expect(host.room.noituGame?.turnRemainingMs).toBe(21_000);expect(host.room.noituGame?.turnDeadlineAt).toBeNull();
+    vi.advanceTimersByTime(50_000);service.resume(host.room.id,host.seat.id,host.credentials.token,'h2');
+    expect(host.room.pauseStartedAt).toBeNull();expect(host.room.noituGame?.turnDeadlineAt).toBe(Date.now()+21_000);
+  });
+});

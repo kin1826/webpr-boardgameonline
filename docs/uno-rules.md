@@ -1,6 +1,6 @@
 # Luật UNO tùy chỉnh Bàn Bạn — BB-UNO-1
 
-Trạng thái: BB-UNO-1 đã được triển khai trong engine và UI, nhưng cần Terra nghiệm thu độc lập. Test/bằng chứng hiện hành ở `docs/sol-uno-fix-report.md` và `docs/verification-report.md`.
+Trạng thái: BB-UNO-1 đã được triển khai trong engine và UI, nhưng cần Terra nghiệm thu độc lập. Test, bằng chứng và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md).
 
 ## Nguồn và phạm vi
 

@@ -1,8 +1,6 @@
 # Phòng chơi và phần dùng lại giữa các game
 
-> Trạng thái hiện tại: vòng đời phòng/reconnect/đóng phòng và luật BB-UNO-1 đã được triển khai. Các lựa chọn lịch sử dưới đây đã cập nhật theo hành vi hiện tại; chi tiết kiểm chứng ở [sol-uno-fix-report.md](./sol-uno-fix-report.md).
-
-Trạng thái: đã triển khai trong `packages/shared`, `server/src/rooms.ts`, `server/src/index.ts` và UI UNO. Ghi chú hoàn tất: public/private, danh sách phòng công khai, ready/start, quyền kick, và UI dùng chung được nối với server. Ma trận kiểm thử còn thiếu được ghi trong [verification-report.md](./verification-report.md).
+Trạng thái: room/session dùng chung cho UNO và Nối từ; Nối từ đang chờ Terra nghiệm thu. Kết quả và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md) và [báo cáo Nối từ](./reports/noitu/summary.md).
 
 ## Vào phòng bằng mã, public và private
 
@@ -22,10 +20,10 @@ Trạng thái: đã triển khai trong `packages/shared`, `server/src/rooms.ts`,
 
 ## Sẵn sàng và bắt đầu
 
-- UNO bắt đầu được với 2, 3, 4, 5 hoặc 6 người thật, bỏ qua ghế trống.
+- Mỗi game (UNO/Nối từ) bắt đầu được với 2, 3, 4, 5 hoặc 6 người thật, bỏ qua ghế trống.
 - Khách có nút “Sẵn sàng” / “Hủy sẵn sàng”. Chủ phòng có nút “Bắt đầu”; bấm bắt đầu chính là xác nhận của chủ phòng, không cần thêm lần bấm sẵn sàng riêng cho chủ phòng.
-- Server chỉ chấp nhận start khi đúng chủ phòng, phòng đang chờ, có ít nhất 2 người, tất cả đang kết nối và tất cả khách sẵn sàng.
-- Khi thiếu điều kiện, nút start bị vô hiệu hóa kèm lý do cụ thể: “Cần thêm 1 người”, “Chờ An sẵn sàng” hoặc “Có người đang mất kết nối”. Khách không thấy nút bắt đầu.
+- Server chỉ chấp nhận start khi đúng chủ phòng, game của phòng sẵn sàng, phòng đang chờ, có ít nhất 2 người, tất cả đang kết nối và tất cả khách sẵn sàng.
+- Khi thiếu điều kiện, nút start bị vô hiệu hóa kèm lý do cụ thể như “Cần thêm 1 người”, “Chờ An sẵn sàng”, “Có người đang mất kết nối” hoặc “Từ điển thử nghiệm chưa sẵn sàng”. Khách không thấy nút bắt đầu.
 - Thêm/bớt thành viên, chuyển chủ phòng hoặc bắt đầu ván mới thì reset ready của khách. Disconnect hủy ready của người mất kết nối; reconnect không tự ready lại.
 - Join/ready/kick/start đều qua hàng đợi của phòng. Nếu danh sách đã đổi, start với revision cũ bị từ chối, không chia bài cho một danh sách chưa được xác nhận.
 
@@ -50,6 +48,7 @@ Tái sử dụng hệ token, typography, nút/input/dialog/toast và các màn s
 | Khung phòng chờ | Mã/copy, chế độ, danh sách người, host, kết nối, ready, start, leave/kick |
 | Khung phiên chơi | Thanh phòng, trạng thái mạng, luật chơi, vùng render game và kết quả |
 | Riêng UNO | Lá bài, vị trí đối thủ, tay bài, lượt, chọn màu, cộng/nhận phạt và hô UNO |
+| Riêng Nối từ | Prefix/suffix, draft, dictionary check, proposal vote, deadline, lịch sử và người bị loại |
 
 Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong hero đã bị người dùng bỏ. Tạo phòng nằm sau bước chọn UNO. Phần danh sách công khai đặt dưới khu chọn game hoặc trong trang UNO để không đẩy game xuống khỏi màn đầu.
 
@@ -57,9 +56,9 @@ Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong her
 
 - Giữ React + TypeScript + Vite và CSS tokens; backend Node + TypeScript + Socket.IO, trạng thái RAM trong một process.
 - Room service sở hữu thành viên, host, visibility, ready, start/leave/kick, vòng đời và danh sách công khai. Session service sở hữu token và reconnect. Hai phần không biết lá bài hoặc luật UNO.
-- Room lưu `gameKey`, giới hạn min/max từ catalog server và tham chiếu ván. Điều kiện ready/start chung nằm ở room service, không viết cố định số 2–6 vào mọi thành phần. Hiện chỉ đăng ký UNO, với min=2/max=6.
-- Module UNO sở hữu state, validate hành động, transition, kết quả và projection riêng từng người. Không đẩy engine hoặc raw state kín vào bundle frontend.
-- Lớp nối room với UNO chỉ cần khởi tạo ván, xử lý intent và tạo snapshot theo người nhận. Khi có game thứ hai mới trích interface chung từ nhu cầu thật; không xây plugin framework hoặc engine luật tổng quát ngay.
+- Room lưu `gameKey`, giới hạn min/max từ catalog server và state riêng game. Điều kiện ready/start chung nằm ở room service; hiện UNO và Nối từ đều có min=2/max=6.
+- Module UNO và Nối từ lần lượt sở hữu state, validate hành động, transition, kết quả và projection. Không đẩy engine hoặc raw state kín vào bundle frontend.
+- Room service rẽ nhánh theo hai game hiện có nhưng không tạo plugin framework hay engine luật tổng quát.
 - Khách chỉ gửi ý định; server kiểm tra quyền, phase, payload, action ID và revision. Discovery public cũng do server lọc, không tải toàn bộ phòng rồi ẩn private bằng CSS.
 
 ## Thứ tự làm và kiểm chứng
@@ -68,6 +67,6 @@ Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong her
 2. Làm session/room chung, visibility/discovery, ready/start/kick/leave; kiểm thử bằng Socket.IO client thật.
 3. Nối màn chờ chung và UI UNO; thay copy link bằng copy mã trong luồng thật.
 4. Thử đủ 2–6 người, khách chưa ready, host chuyển quyền, join/kick đua với start, kick trong ván, public đổi private, private không lọt qua danh sách, socket đã bị kick không resume được.
-5. Đã có typecheck, unit tests room/game và integration hai client Socket.IO. Kiểm tra browser/LAN vật lý chưa thực hiện trong phiên này; xem báo cáo kiểm chứng.
+5. UNO và Nối từ có unit/service tests; integration Socket.IO kiểm thử bằng hai client độc lập. Kiểm tra browser/điện thoại LAN thật cho Nối từ còn phải làm độc lập; xem báo cáo kiểm chứng.
 
 Không thêm game mới trong vòng này. Public là danh sách phòng tự chọn, không có matchmaking. Phòng và token mất khi backend khởi động lại.
