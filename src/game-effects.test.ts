@@ -29,17 +29,20 @@ it('intensity tăng theo khoản phạt, có trần desktop/mobile và xử lý 
 });
 
 const event: GameEffectEvent = { eventId: 'game-123:4', roomId: 'room-12345', gameId: 'game-123', revision: 9, gameRevision: 4, actionType: 'play', actorId: 'player-a', card: { type: 'number', color: 'red', value: 5 } };
-const snapshot = { roomId: event.roomId, revision: 9, game: { gameId: event.gameId, revision: 4 } } as RoomSnapshot;
+function snapshotFor(game: unknown, revision = 9): RoomSnapshot {
+  return { roomId: event.roomId, revision, gameKey: 'uno', game } as unknown as RoomSnapshot;
+}
+const snapshot = snapshotFor({ gameId: event.gameId, revision: 4 });
 
 describe('gating effetti realtime', () => {
   it('accetta solo l’evento corrispondente allo snapshot server', () => expect(shouldPlayGameEffect(event, snapshot, new Set())).toBe(true));
   it('rifiuta eventId già visto e snapshot più vecchio', () => {
     expect(shouldPlayGameEffect(event, snapshot, new Set([event.eventId]))).toBe(false);
-    expect(shouldPlayGameEffect(event, { ...snapshot, revision: 8 }, new Set())).toBe(false);
+    expect(shouldPlayGameEffect(event, snapshotFor(snapshot.game, 8), new Set())).toBe(false);
   });
   it('rifiuta event tới trước snapshot, ván cũ hoặc revision không khớp', () => {
     expect(shouldPlayGameEffect(event, null, new Set())).toBe(false);
-    expect(shouldPlayGameEffect(event, { ...snapshot, game: { gameId: 'old-game', revision: 4 } }, new Set())).toBe(false);
-    expect(shouldPlayGameEffect(event, { ...snapshot, game: { gameId: event.gameId, revision: 3 } }, new Set())).toBe(false);
+    expect(shouldPlayGameEffect(event, snapshotFor({ gameId: 'old-game', revision: 4 }), new Set())).toBe(false);
+    expect(shouldPlayGameEffect(event, snapshotFor({ gameId: event.gameId, revision: 3 }), new Set())).toBe(false);
   });
 });

@@ -1,0 +1,12 @@
+{
+  "source_entries": 79226,
+  "excluded_not_two_tokens": 26448,
+  "two_token_entries_before_character_filter": 52778,
+  "accepted_entries_before_deduplication": 52485,
+  "excluded_two_tokens_with_non_vietnamese_characters": 293,
+  "unique_candidates": 51898,
+  "duplicates_merged": 587,
+  "source_sha256": "4c3e0e6117e4bdfa97731e135c3d4a05881889909267394a8de8d88ef79f13f0",
+  "output_sha256": "77421890163574dbe36a52548aa7a68fa21d717b02327e718ea562b5a2a2d9c3",
+  "status": "candidates_only_not_semantically_reviewed"
+}

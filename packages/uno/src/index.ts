@@ -240,3 +240,5 @@ export function projectGame(state: UnoState, playerId: string) {
   };
 }
 
+export type UnoPublicGame = ReturnType<typeof projectGame>;
+
