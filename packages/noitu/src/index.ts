@@ -65,6 +65,7 @@ export type NoituPublicGame = {
   deadlineAt: number | null;
   remainingMs: number | null;
   serverNow: number;
+  turnDurationMs: number;
   proposalsThisTurn: number;
   proposal: null | {
     id: string;
@@ -329,7 +330,7 @@ export function projectNoituGame(state: NoituState, viewerId: string, now: numbe
     currentWord: state.currentWord, requiredSyllable: state.requiredSyllable,
     deadlineAt: state.phase === 'voting' ? proposal?.deadlineAt ?? null : state.turnDeadlineAt,
     remainingMs: state.phase === 'voting' ? proposal?.remainingMs ?? null : state.turnRemainingMs,
-    serverNow: now, proposalsThisTurn: state.proposalsThisTurn, proposal: projectedProposal,
+    serverNow: now, turnDurationMs: NOITU_TURN_MS, proposalsThisTurn: state.proposalsThisTurn, proposal: projectedProposal,
     history: state.history.slice(-NOITU_HISTORY_LIMIT), historyCount: state.history.length,
     usedCount: state.usedWords.size, winnerId: state.winnerId, notice: state.notice,
     dictionaryVersion: state.dictionaryVersion, canSubmit: activeTurn, canGiveUp: activeTurn,

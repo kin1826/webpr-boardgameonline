@@ -163,6 +163,7 @@ describe('Nối từ engine — NT-VI-1', () => {
     const publicState = projectNoituGame(initial, 'a', 0, false);
     expect(publicState.canSubmit).toBe(true);
     expect(publicState.currentWord).toBe('nấu cơm');
+    expect(publicState.turnDurationMs).toBe(30_000);
     expect(JSON.stringify(publicState)).not.toContain('usedWords');
     expect(JSON.stringify(publicState)).not.toContain('lọc cọc');
     expect((publicState as unknown as Record<string, unknown>).dictionaryVersion).toBe('fixture-1');

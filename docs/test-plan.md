@@ -1,6 +1,6 @@
 # Kế hoạch kiểm thử hiện hành
 
-Expected theo [BB-UNO-1](./uno-rules.md) và [NT-VI-1](./noitu-rules.md), vòng đời theo [đặc tả phòng](./rooms-and-reuse.md). Kết quả đã chạy và giới hạn ở [báo cáo hợp nhất](./reports/project-summary.md) và [báo cáo Nối từ](./reports/noitu/summary.md); báo cáo kiểm thử mới phải nằm trong `docs/reports/`.
+Expected theo [BB-UNO-1](./uno-rules.md), [NT-VI-1](./noitu-rules.md) và [HQ-CARO-1](./caro-rules.md), vòng đời theo [đặc tả phòng](./rooms-and-reuse.md). Kết quả đã chạy và giới hạn ở [báo cáo hợp nhất](./reports/project-summary.md), [báo cáo Nối từ](./reports/noitu/summary.md) và [báo cáo Caro](./reports/caro/summary.md); báo cáo kiểm thử mới phải nằm trong `docs/reports/`.
 
 ## Tự động
 
@@ -19,8 +19,11 @@ Expected theo [BB-UNO-1](./uno-rules.md) và [NT-VI-1](./noitu-rules.md), vòng 
 | Nối từ engine | NFC/tiếng, nối đúng prefix, trùng/deny, dictionary known/unknown, 2–6 người, timeout đúng biên, giveUp/winner, pause/resume |
 | Nối từ proposal | Eligible voters, strict majority toàn mẫu, vote lặp/stale/không eligible, accept/reject/timeout, deadline lượt đóng băng, quota hai proposal, không lưu từ nhóm nhận vào dictionary |
 | Nối từ phòng | Data hash/loader, source root path, draft sequence/privacy/no revision, noitu:action chống game/session/turn cũ, cleanup/rematch và giữ UNO |
+| Caro engine | Bàn 15×15; lượt/tọa độ/ô bận; đúng mục tiêu 4/5/6 có đầu mở theo 4 trục; vượt mục tiêu không thắng; biên/chặn hai đầu; nhiều trục; hòa; timeout/resign; pause/resume; capabilities |
+| Caro phòng/API | min=max=2, người thứ ba bị từ chối; ready/start; schema strict; action ID/revision/game/turn/session cũ; deadline race/timer cleanup; disconnect pause/grace expiry; leave/kick hủy ván; rematch cùng cặp đổi X/O |
+| Caro realtime/privacy | Hai Socket.IO client độc lập create→join→ready/start→place→win→rematch; action chéo game, packet sai và duplicate; snapshot chỉ có state công khai/capabilities, không có token |
 
-File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/shared/src/`, `server/src/`, `src/action-id.test.ts` và `src/game-effects.test.ts`. Chạy `npm test`, `npm run typecheck`, `npm run build` theo README. Socket tests cần bind loopback; nếu sandbox chặn, rerun có quyền loopback rồi ghi rõ. Không thêm test chỉ kiểm tra tên class hoặc sao chép logic triển khai.
+File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/caro/src/`, `packages/shared/src/`, `server/src/`, `src/action-id.test.ts` và `src/game-effects.test.ts`. Chạy `npm test`, `npm run typecheck`, `npm run build` theo README. Socket tests cần bind loopback; nếu sandbox chặn, rerun có quyền loopback rồi ghi rõ. Không thêm test chỉ kiểm tra tên class hoặc sao chép logic triển khai.
 
 ## Browser / thiết bị và nghiệm thu Terra
 
@@ -31,5 +34,6 @@ File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/shar
 5. Keyboard/Tab/Enter/Space, focus dialog, zoom và contrast; reduced motion app/OS, tab nền và resume không replay effect.
 6. Cài sạch theo lockfile, chạy production HTTP/Socket.IO, rồi thử URL HTTPS thật bằng hai mạng. Hosting một process/replica, proxy WebSocket đúng; không coi HTML tải được là multiplayer đã hoạt động.
 7. Hai session Nối từ độc lập: tạo/join bằng mã, ready/start, đúng người/seed, prefix khóa, draft realtime, từ known, từ lạ + vote accept/reject/timeout, sai/lặp, hết giờ/chịu thua, reconnect/pause, winner/rematch; sau đó vào UNO để xác nhận route và game không lẫn state.
+8. Hai session Caro độc lập: đúng hai ghế, start với X/O, đặt nước luân phiên, ô bận/sai lượt/tọa độ ngoài biên bị chặn, dãy đúng mục tiêu 4/5/6 có đầu mở thắng, vượt mục tiêu không thắng, timeout/resign/pause/reconnect/rematch đổi ký hiệu. Thử desktop 1440px và mobile 390/360px: zoom/pan/chọn→xác nhận không làm tràn ngang hoặc đánh nhầm.
 
 Ghi đúng môi trường, lệnh/kết quả, fixture hay production shuffle, bằng chứng ảnh/video đã che token, lỗi và phần bị chặn. Chưa xem browser ghi BLOCKED; không dùng test xanh thay nghiệm thu cảm giác motion hoặc điện thoại thật.

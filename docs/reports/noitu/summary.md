@@ -1,6 +1,6 @@
 # Tổng kết Nối từ — NT-VI-1
 
-Cập nhật 14/11/2026. Người dùng xác nhận bản sửa giao diện mới nhất đã ổn và yêu cầu gom hồ sơ. Code và kiểm tra tự động đã hoàn thành; **Terra chưa nghiệm thu độc lập**. File này thay thế 13 kế hoạch, prompt và báo cáo trung gian của đợt Nối từ.
+Hồ sơ được rà soát, gom lại 15/11/2026; bằng chứng từng đợt giữ ngày riêng. Người dùng xác nhận bản sửa giao diện mới nhất đã ổn và yêu cầu gom hồ sơ. Code và kiểm tra tự động đã hoàn thành; **Terra chưa nghiệm thu độc lập**. File này thay thế 13 kế hoạch, prompt và báo cáo trung gian của đợt Nối từ.
 
 ## Hành vi hiện tại
 
@@ -18,6 +18,10 @@ Cập nhật 14/11/2026. Người dùng xác nhận bản sửa giao diện mớ
 - Mảnh suffix nằm ngoài flow và ngoài vùng cuộn chữ, tối đa 18 ô mỗi đợt; cleanup theo rejection ID. Nếu vote/reject tới nhanh, dùng dữ liệu proposal để đo vị trí dự phòng thay vì yêu cầu proposal đã kịp xuất hiện trong DOM. Accept, reconnect/rematch không replay hiệu ứng.
 - Hàng active rộng tối đa 640 px trên desktop. Chữ nhập/vote giữ một dòng, dài thì cuộn ngang trong bubble; toàn trang không tràn ngang. Dock giữ chiều cao ổn định giữa nhập/vote. Reduced motion bỏ hiệu ứng.
 - Timeline cuộn riêng bằng scrollTop, theo đáy khi đang chơi; cuộn lên chủ động giữ vị trí đọc và có nút về lượt hiện tại. ResizeObserver/visualViewport hỗ trợ bàn phím mobile. Không scrollIntoView kéo trang ngoài.
+
+## Cập nhật giao diện gần nhất
+
+Cập nhật UI 15/11/2026: bỏ dòng chú thích từ điển ở cuối timeline. Ô nhập của người đang lượt có thanh thời gian nằm phía trên, dài theo `turnDurationMs` do server đưa trong projection; đồng hồ client chỉ vẽ tiến độ, không quyết định hết lượt. Thanh chuyển sang màu cảnh báo khi còn tối đa 5 giây. `npm run build` đạt; `npx vitest run packages/noitu/src/index.test.ts` đạt 16/16, gồm kiểm tra thời lượng trong projection. Chưa thử trực quan trên điện thoại thật.
 
 ## Bản đồ source
 

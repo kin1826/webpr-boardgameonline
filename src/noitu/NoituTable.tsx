@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type CompositionEvent, type KeyboardEvent as ReactKeyboardEvent, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import type { NoituDraftNotice, RoomSnapshot } from '@banban/shared';
 import AnimatedWordTiles from './AnimatedWordTiles';
+import PlayerAvatar from '../components/PlayerAvatar';
 import { canConfirmGiveUp, claimSingleAction, timelineFollowAfterScroll, timelineFollowAfterSubmit, type GiveUpTarget } from './interaction-state';
+import type { NoituActionIntent } from '../api/realtime';
 import { activeTurnRowKey, type RejectionPresentation } from './word-tiles';
 
 type ActionReply = { ok: boolean; message?: string };
@@ -13,7 +15,7 @@ type Props = {
   draft: NoituDraftNotice | null;
   rejectionEvent: RejectionPresentation | null;
   onRejectionAnimationDone: (id: number) => void;
-  onAction: (intent: Record<string, unknown>) => Promise<ActionReply>;
+  onAction: (intent: NoituActionIntent) => Promise<ActionReply>;
   onDraft: (value: { gameId: string; turnId: string; sequence: number; suffix: string }) => void;
   onLeave: () => void;
   onRules: () => void;
@@ -220,6 +222,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
   const deadline = proposal?.deadlineAt ?? activeGame.deadlineAt;
   const remaining = deadline !== null ? Math.max(0, deadline - clockNow) : proposal?.remainingMs ?? activeGame.remainingMs;
   const seconds = remaining === null ? null : Math.max(0, Math.ceil(remaining / 1000));
+  const turnProgress = Math.min(100, Math.max(0, ((remaining ?? 0) / activeGame.turnDurationMs) * 100));
   const isMyTurn = activeGame.currentPlayerId === playerId && activeGame.phase === 'turn';
   const mayGiveUp = activeGame.canGiveUp && !busy && connected && !snapshot.paused;
   const playerSummary = new Map(snapshot.players.map((member) => [member.id, member]));
@@ -349,7 +352,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
         {activeGame.players.map((member, index) => {
           const seat = playerSummary.get(member.id);
           return <div key={member.id} className={`noitu-player${member.id === activeGame.currentPlayerId ? ' is-current' : ''}${member.status === 'eliminated' ? ' is-eliminated' : ''}${seat && !seat.online ? ' is-offline' : ''}`}>
-            <span className={`avatar avatar-${index % 4}`}>{member.nickname.slice(0, 1).toUpperCase()}</span>
+            <PlayerAvatar id={seat?.avatarId} className={`avatar-${index % 4}`} />
             <span className="noitu-player-copy"><strong>{member.nickname}{member.id === playerId ? ' · Bạn' : ''}</strong><small>{member.status === 'eliminated' ? 'Đã bị loại' : member.id === activeGame.currentPlayerId ? 'Đang tới lượt' : seat?.online ? 'Đang chơi' : 'Mất kết nối'}</small></span>
           </div>;
         })}
@@ -360,17 +363,17 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
           {activeGame.history.map((item, index) => {
             const own = item.playerId === playerId;
             return <li key={`${item.kind}-${item.playerId ?? 'seed'}-${item.word}-${index}`} className={`noitu-message${own ? ' is-own' : ''}${item.kind === 'seed' ? ' is-seed' : ''}`}>
-              {!own && item.kind !== 'seed' && <span className={`avatar avatar-${activeGame.players.findIndex((p) => p.id === item.playerId) % 4}`}>{item.nickname.slice(0, 1).toUpperCase()}</span>}
+              {!own && item.kind !== 'seed' && <PlayerAvatar id={playerSummary.get(item.playerId!)?.avatarId} />}
               <div className="noitu-message-body">
                 <span className="noitu-message-author">{item.kind === 'seed' ? 'Từ mở đầu' : `${item.nickname}${own ? ' · Bạn' : ''}`}</span>
                 <div className="noitu-message-bubble"><AnimatedWordTiles word={item.word} label={item.word} highlightLast animateChanges={false} /></div>
                 {item.acceptedByGroup && <span className="noitu-message-note">Được nhóm chấp nhận</span>}
               </div>
-              {own && <span className="avatar avatar-own">{item.nickname.slice(0, 1).toUpperCase()}</span>}
+              {own && <PlayerAvatar id={playerSummary.get(item.playerId!)?.avatarId} className="avatar-own" />}
             </li>;
           })}
           {(activeGame.phase === 'turn' || activeGame.phase === 'voting') && <li key={activeTurnRowKey(activeGame.gameId, activeGame.turnId)} data-active-turn={activeGame.turnId} className={`noitu-message noitu-active-message${proposal ? ' is-proposal' : ' is-pending'}${activeGame.currentPlayerId === playerId ? ' is-own' : ''}`}>
-            {activeGame.currentPlayerId !== playerId && <span className="avatar avatar-pending">{current?.nickname.slice(0, 1).toUpperCase() ?? '?'}</span>}
+            {activeGame.currentPlayerId !== playerId && <PlayerAvatar id={playerSummary.get(activeGame.currentPlayerId ?? '')?.avatarId} className="avatar-pending" />}
             <div className="noitu-message-body">
               <span className="noitu-message-author">{current?.nickname ?? 'Người chơi'}{activeGame.currentPlayerId === playerId ? ' · Bạn' : ''} · {proposal ? 'Chờ biểu quyết' : isMyTurn ? (suffix ? 'Đang nhập' : 'Tới lượt bạn') : (activeDraftSuffix ? 'Đang nhập' : 'Đang nghĩ')} · {seconds ?? 0} giây</span>
               <div className="noitu-message-bubble">
@@ -378,7 +381,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
               </div>
               <span className="noitu-message-note">{proposal ? `${proposal.acceptCount} chấp nhận · ${proposal.rejectCount} bác bỏ · còn ${seconds ?? 0} giây` : <>Tiếng cần nối: <b>{activeGame.requiredSyllable}</b></>}</span>
             </div>
-            {activeGame.currentPlayerId === playerId && <span className="avatar avatar-own">{player?.nickname.slice(0, 1).toUpperCase() ?? 'B'}</span>}
+            {activeGame.currentPlayerId === playerId && <PlayerAvatar id={playerSummary.get(playerId)?.avatarId} className="avatar-own" />}
           </li>}
           {activeGame.phase === 'finished' && <li className="noitu-result-message" aria-live="assertive">
             <span className="noitu-result-kicker">VÁN ĐÃ KHÉP LẠI</span>
@@ -386,7 +389,6 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
             <p>{activeCount} người còn lại · {activeGame.usedCount} từ đã được dùng</p>
             {snapshot.players.find((item) => item.isHost)?.isYou ? <button className="button button-primary" type="button" disabled={busy || !connected} onClick={onRematch}>Chơi lại</button> : <span>Chờ chủ phòng bắt đầu ván mới.</span>}
           </li>}
-          <li className="noitu-dictionary-footnote">Từ điển thử nghiệm · từ do nhóm chấp nhận chỉ có hiệu lực trong ván này.</li>
         </ol>
         {!followLatest && <button className="noitu-jump-latest" type="button" onClick={jumpToLatest}>Về lượt hiện tại ↓</button>}
       </section>
@@ -397,6 +399,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
           {proposal.canVote && <div className="noitu-dock-actions"><button className="button button-primary" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void vote('accept')}>Chấp nhận</button><button className="button button-secondary" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void vote('reject')}>Bác bỏ</button></div>}
         </div>}
         {!proposal && activeGame.phase === 'turn' && isMyTurn && <form className="noitu-composer" onSubmit={(event) => void submit(event)}>
+          <div className={`noitu-turn-progress${(seconds ?? 99) <= 5 ? ' is-urgent' : ''}`} role="progressbar" aria-label="Thời gian còn lại của lượt" aria-valuemin={0} aria-valuemax={activeGame.turnDurationMs} aria-valuenow={Math.ceil(remaining ?? 0)}><span style={{ width: `${turnProgress}%` }} /></div>
           <span className="noitu-compose-label">Tiếng cần nối <b>{activeGame.requiredSyllable}</b></span>
           <label className="noitu-compose-field" htmlFor="noitu-suffix"><span className="sr-only">Tiếng bạn nối</span><input ref={inputRef} id="noitu-suffix" type="text" value={suffix} onChange={(event) => { setSuffix(event.target.value); setFormError(''); }} onCompositionStart={() => setComposing(true)} onCompositionEnd={compositionEnd} onKeyDown={(event) => { if (event.key === 'Enter' && (composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); }} maxLength={64} autoComplete="off" autoCapitalize="none" spellCheck={false} inputMode="text" placeholder="Nhập tiếng tiếp theo…" aria-label={`Tiếng cần nối là ${activeGame.requiredSyllable}. Nhập tiếng tiếp theo`} aria-describedby={formError ? 'noitu-form-error' : 'noitu-compose-help'} disabled={!connected || snapshot.paused || sending} />
             <button className="button button-primary" type="submit" disabled={!activeGame.canSubmit || busy || sending || !connected || snapshot.paused}>{sending ? 'Đang gửi…' : 'Gửi'}</button>

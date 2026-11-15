@@ -49,7 +49,7 @@ export default function InlineNicknameEdit({ name, onSave }: InlineNicknameEditP
 
   return (
     <div className={`ux u033${editing ? ' is-edit' : ''}${invalid ? ' is-shake' : ''}`}>
-      <div className="u033-crumb"><i aria-hidden="true" />Biệt danh <span aria-hidden="true">/</span> Bàn Bạn</div>
+      <div className="u033-crumb"><i aria-hidden="true" />Biệt danh <span aria-hidden="true">/</span> Hội Quậy</div>
       <div className="u033-row">
         <button ref={viewRef} className={`u033-view${saved ? ' flash' : ''}`} type="button" aria-label={`Sửa biệt danh: ${name}`} onClick={edit}>{name}</button>
         <button className="u033-pen" type="button" aria-label="Sửa biệt danh" onClick={edit}>

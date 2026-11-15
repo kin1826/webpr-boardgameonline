@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { io as connect, type Socket } from 'socket.io-client';
 import { createRealtimeServer } from './index.ts';
 import { RoomService } from './rooms.ts';
+import { parseRoomSnapshot } from '@banban/shared';
 import type { UnoCard } from '@banban/uno';
 import type { NoituDictionary } from '@banban/noitu';
 
@@ -9,7 +10,11 @@ type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; cr
 function emitAck(socket: Socket, event: string, payload?: unknown): Promise<Result> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('ACK timeout: ' + event)), 3000);
-    const callback = (value: Result) => { clearTimeout(timeout); resolve(value); };
+    const callback = (value: Result) => {
+      clearTimeout(timeout);
+      if (value.snapshot && !parseRoomSnapshot(value.snapshot)) return reject(new Error('Snapshot không đúng schema: ' + event));
+      resolve(value);
+    };
     if (payload === undefined) socket.emit(event, callback);
     else socket.emit(event, payload, callback);
   });
@@ -299,3 +304,60 @@ it('hai socket chơi hết một ván shuffle production, bảo toàn 108 lá qu
   expect(steps).toBeLessThan(2000);expect(views[0].phase).toBe('finished');expect(views[1].game.winnerId).toBe(views[0].game.winnerId);
   console.log('Production-shuffle Socket.IO round:',steps,'actions, result:',views[0].game.finishReason);
 },30000);
+
+class CaroFixtureRoomService extends RoomService {
+  override start(room: ReturnType<RoomService['getRoom']>, actor: ReturnType<RoomService['getSeat']>) {
+    super.start(room, actor);
+    if (room.gameKey !== 'caro' || !room.caroGame) throw new Error('Cần phòng Caro cho fixture.');
+    const state = room.caroGame;
+    const xPlayer = state.players.find((player) => player.symbol === 'X')!;
+    state.currentPlayerId = xPlayer.id;
+    for (let col = 8 - state.winLength; col < 7; col++) state.board[7 * 15 + col] = 'X';
+  }
+}
+
+it('hai socket chơi Caro qua API, chặn game chéo, thắng, idempotency và rematch đổi X/O', async () => {
+  active = createRealtimeServer({ serveWeb: false, roomService: new CaroFixtureRoomService({ randomInt: () => 0 }) });
+  await new Promise<void>((resolve) => active!.http.listen(0, '127.0.0.1', resolve));
+  const address = active.http.address(); if (!address || typeof address === 'string') throw new Error('Không lấy được cổng test.');
+  const url = 'http://127.0.0.1:' + address.port;
+  const open = async () => {
+    const socket = connect(url, { forceNew: true, transports: ['websocket'], reconnection: false }); clients.push(socket);
+    await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
+    return socket;
+  };
+  const a = await open(); const b = await open();
+  const created = await emitAck(a, 'room:create', { actionId: crypto.randomUUID(), nickname: 'Chủ', visibility: 'private', gameKey: 'caro' });
+  expect(created.ok).toBe(true); expect(created.snapshot?.gameKey).toBe('caro');
+  const owner = created.credentials!;
+  const joined = await emitAck(b, 'room:join', { actionId: crypto.randomUUID(), nickname: 'Khách', code: owner.roomCode });
+  const deniedSettings = await emitAck(b, 'room:caro-settings', action(owner.roomId, joined.snapshot!.revision, { winLength: 4 }));
+  expect(deniedSettings.ok).toBe(false);
+  const settings = await emitAck(a, 'room:caro-settings', action(owner.roomId, joined.snapshot!.revision, { winLength: 4 }));
+  expect(settings.ok).toBe(true); expect(settings.snapshot!.caroWinLength).toBe(4);
+  const invalidSettings = await emitAck(a, 'room:caro-settings', action(owner.roomId, settings.snapshot!.revision, { winLength: 7 }));
+  expect(invalidSettings.code).toBe('INVALID_PAYLOAD');
+  const ready = await emitAck(b, 'room:ready', action(owner.roomId, settings.snapshot!.revision, { ready: true }));
+  expect(ready.snapshot!.caroWinLength).toBe(4);
+  const started = await emitAck(a, 'room:start', action(owner.roomId, ready.snapshot!.revision));
+  expect(started.snapshot!.game.winLength).toBe(4);
+  expect(started.ok).toBe(true); expect(started.snapshot!.game.board).toHaveLength(225);
+  expect(started.snapshot!.game.players).toHaveLength(2); expect(started.snapshot!.game).not.toHaveProperty('token');
+  expect(started.snapshot!.game.legalCellIndexes).toHaveLength(222);
+  const crossGame = await emitAck(a, 'game:action', action(owner.roomId, started.snapshot!.revision, { gameId: started.snapshot!.game.gameId, type: 'draw' }));
+  expect(crossGame.ok).toBe(false);
+  const xPlayerId = started.snapshot!.game.players.find((player: any) => player.symbol === 'X').id;
+  const xSocket = xPlayerId === owner.playerId ? a : b;
+  const movePayload = action(owner.roomId, started.snapshot!.revision, { gameId: started.snapshot!.game.gameId, type: 'place', row: 7, col: 7, turnId: started.snapshot!.game.turnId });
+  const move = await emitAck(xSocket, 'caro:action', movePayload);
+  expect(move.ok).toBe(true); expect(move.snapshot!.phase).toBe('finished'); expect(move.snapshot!.game.finishReason).toBe('five');
+  expect(move.snapshot!.game.winnerId).toBe(xPlayerId); expect(move.snapshot!.game.winningLines).toHaveLength(1);
+  const repeated = await emitAck(xSocket, 'caro:action', movePayload);
+  expect(repeated.ok).toBe(true); expect(repeated.snapshot!.revision).toBe(move.snapshot!.revision);
+  const rematch = await emitAck(a, 'room:rematch', action(owner.roomId, move.snapshot!.revision));
+  const readyAgain = await emitAck(b, 'room:ready', action(owner.roomId, rematch.snapshot!.revision, { ready: true }));
+  const startedAgain = await emitAck(a, 'room:start', action(owner.roomId, readyAgain.snapshot!.revision));
+  expect(startedAgain.ok).toBe(true);
+  expect(startedAgain.snapshot!.game.players.find((player: any) => player.id === xPlayerId).symbol).toBe('O');
+  expect(startedAgain.snapshot!.game.currentPlayerId).not.toBe(xPlayerId);
+}, 10_000);

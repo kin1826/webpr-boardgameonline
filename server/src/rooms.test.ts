@@ -10,6 +10,15 @@ function create() {
 afterEach(() => { for (const service of services) service.destroyAll(); services = []; vi.useRealTimers(); });
 
 describe('Phòng UNO và quyền dùng chung', () => {
+  it('giữ hình đại diện theo ghế khi tham gia và nối lại', () => {
+    const service = create();
+    const host = service.create('Mít', 'private', 'h', 'uno', 9);
+    const guest = service.join(host.room.code, 'Bắp', 'g', 3);
+    const before = service.snapshot(host.room, host.seat.id).players;
+    expect(before.map((player) => player.avatarId)).toEqual([9, 3]);
+    service.resume(host.room.id, guest.seat.id, guest.credentials.token, 'g-new');
+    expect(service.snapshot(host.room, host.seat.id).players.find((player) => player.id === guest.seat.id)?.avatarId).toBe(3);
+  });
   it.each([2,3,4,5,6])('bắt đầu với %i người, không cần kín ghế', count => {
     const service = create();
     const host = service.create('Chủ phòng','private','socket-host');
@@ -22,11 +31,13 @@ describe('Phòng UNO và quyền dùng chung', () => {
   });
   it('chỉ liệt kê phòng public và chỉ phòng chờ còn chỗ', () => {
     const service = create();
-    service.create('Công khai','public','a');
+    service.create('Công khai','public','a','uno',7);
     const secret = service.create('Riêng tư','private','b');
     expect(service.publicRooms()).toHaveLength(1);
     expect(service.publicRooms()[0]?.code).not.toBe(secret.room.code);
     expect(service.publicRooms()[0]?.phase).toBe('waiting');
+    expect(service.publicRooms()[0]?.hostName).toBe('Công khai');
+    expect(service.publicRooms()[0]?.hostAvatarId).toBe(7);
   });
   it('chủ phòng không cần ready; khách chưa sẵn sàng chặn start', () => {
     const service = create(); const host = service.create('Host','private','h'); const guest = service.join(host.room.code,'Khách','g');
@@ -192,4 +203,87 @@ describe('Phòng Nối từ và timer theo game',()=>{
     vi.advanceTimersByTime(50_000);service.resume(host.room.id,host.seat.id,host.credentials.token,'h2');
     expect(host.room.pauseStartedAt).toBeNull();expect(host.room.noituGame?.turnDeadlineAt).toBe(Date.now()+21_000);
   });
+});
+
+describe('Phòng Caro HQ-CARO-1', () => {
+  it('chỉ nhận tối đa 2 người, cần khách sẵn sàng; snapshot chia sẻ bàn và capabilities theo lượt', () => {
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    expect(service.gameAvailable('caro')).toBe(true);
+    const host = service.create('Chủ', 'public', 'h', 'caro');
+    const guest = service.join(host.room.code, 'Khách', 'g');
+    expect(host.room.gameKey).toBe('caro');
+    expect(() => service.join(host.room.code, 'Người 3', '3')).toThrowError(expect.objectContaining({ code: 'ROOM_FULL' }));
+    expect(() => service.start(host.room, host.seat)).toThrowError(expect.objectContaining({ code: 'NOT_READY' }));
+    service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    const hostView = service.snapshot(host.room, host.seat.id);
+    const guestView = service.snapshot(host.room, guest.seat.id);
+    expect(hostView.gameKey).toBe('caro');
+    expect(hostView.minPlayers).toBe(2); expect(hostView.maxPlayers).toBe(2);
+    expect(hostView.game).toMatchObject({ board: Array(225).fill(null), canPlace: true, yourSymbol: 'X' });
+    expect(guestView.game).toMatchObject({ canPlace: false, yourSymbol: 'O', legalCellIndexes: [] });
+    expect(JSON.stringify(hostView)).not.toContain('token');
+  });
+
+  it('timeout chốt đúng biên, resume giữ lại thời gian và callback cũ không tác động ván mới', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
+    service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    const oldId = host.room.caroGame!.gameId;
+    vi.advanceTimersByTime(8_000); service.disconnect(host.room.id, host.seat.id, 'h');
+    expect(host.room.caroGame?.turnRemainingMs).toBe(22_000);
+    vi.advanceTimersByTime(50_000); service.resume(host.room.id, host.seat.id, host.credentials.token, 'h2');
+    expect(host.room.caroGame?.turnDeadlineAt).toBe(Date.now() + 22_000);
+    await vi.advanceTimersByTimeAsync(21_999); expect(host.room.phase).toBe('playing');
+    await vi.advanceTimersByTimeAsync(1); expect(host.room.phase).toBe('finished');
+    expect(host.room.caroGame?.finishReason).toBe('timeout'); expect(host.room.caroGame?.winnerId).toBe(guest.seat.id);
+    service.rematch(host.room, host.seat); service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    expect(host.room.caroGame?.gameId).not.toBe(oldId);
+    expect(host.room.caroGame?.players.find((player) => player.id === guest.seat.id)?.symbol).toBe('X');
+  });
+
+  it('hủy ván và dọn timer khi người chơi rời phòng', () => {
+    vi.useFakeTimers();
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
+    service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    service.leave(host.room, guest.seat);
+    expect(host.room.phase).toBe('waiting'); expect(host.room.caroGame).toBeNull(); expect(host.room.notice).toMatch(/ván bị hủy/iu);
+    vi.advanceTimersByTime(40_000);
+    expect(host.room.phase).toBe('waiting');
+  });
+
+  it('đổi thành viên thì bốc lại X thay vì đảo ký hiệu của cặp cũ', () => {
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    const host = service.create('Chủ', 'private', 'h', 'caro');
+    const firstGuest = service.join(host.room.code, 'Khách cũ', 'g1');
+    service.ready(host.room, firstGuest.seat, true); service.start(host.room, host.seat);
+    const activeGame = host.room.caroGame!;
+    service.caroAction(host.room, host.seat, host.room.revision, {
+      actionId: 'resign-change-pair', roomId: host.room.id, expectedRevision: host.room.revision,
+      gameId: activeGame.gameId, type: 'resign',
+    });
+    service.rematch(host.room, host.seat);
+    service.leave(host.room, firstGuest.seat);
+    const nextGuest = service.join(host.room.code, 'Khách mới', 'g2');
+    service.ready(host.room, nextGuest.seat, true); service.start(host.room, host.seat);
+    expect(host.room.caroGame!.players.find((player) => player.id === host.seat.id)?.symbol).toBe('X');
+  });
+});
+
+it('chỉ host Caro được đổi số quân trong sảnh, reset ready, đồng bộ và giữ cấu hình rematch', () => {
+  const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+  const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
+  service.ready(host.room, guest.seat, true);
+  expect(() => service.setCaroWinLength(host.room, guest.seat, 4)).toThrow();
+  service.setCaroWinLength(host.room, host.seat, 4);
+  expect(guest.seat.ready).toBe(false);
+  expect(service.snapshot(host.room, guest.seat.id)).toMatchObject({ caroWinLength: 4 });
+  expect(() => service.start(host.room, host.seat)).toThrow();
+  service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+  expect(host.room.caroGame!.winLength).toBe(4);
+  expect(() => service.setCaroWinLength(host.room, host.seat, 6)).toThrow();
+  service.caroAction(host.room, host.seat, host.room.revision, { actionId: 'resign-settings', roomId: host.room.id, gameId: host.room.caroGame!.gameId, expectedRevision: host.room.revision, type: 'resign' });
+  service.rematch(host.room, host.seat);
+  expect(service.snapshot(host.room, guest.seat.id)).toMatchObject({ caroWinLength: 4 });
 });
