@@ -15,7 +15,8 @@
     "sirv": "^3.0.2",
     "socket.io": "^4.8.4",
     "tsx": "^4.23.15",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@banban/caro": "*"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

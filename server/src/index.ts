@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import sirv from 'sirv';
 import {
-  GAME_CATALOG, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema,
+  GAME_CATALOG, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema,
   roomCreateSchema, roomJoinSchema, visibilitySchema,
 } from '@banban/shared';
 import { loadNoituDictionary, type RuntimeNoituDictionary } from './noitu-dictionary.ts';
@@ -14,6 +14,26 @@ type Ack = (value: Record<string, unknown>) => void;
 type ActiveSession = { roomId: string; playerId: string; generation: number };
 type ClientSocket = Socket & { data: Socket['data'] & { activeSession?: ActiveSession } };
 type Cached = { fingerprint: string; response: Record<string, unknown>; expiresAt: number };
+
+export function originAllowed(origin: string | undefined, host?: string, protocol = 'http', allowlist = process.env.ALLOWED_ORIGINS ?? '') {
+  if (!origin) return true;
+  try {
+    const parsed = new URL(origin);
+    const allowed = allowlist.split(',').map((value) => value.trim()).filter(Boolean);
+    const localDev = process.env.NODE_ENV !== 'production' && (parsed.port === '5173' || parsed.port === '4173') && (
+      parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
+      /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(parsed.hostname)
+    );
+    const sameHost = Boolean(host && parsed.host.toLowerCase() === host.toLowerCase());
+    const sameProtocol = parsed.protocol === `${protocol.replace(':', '')}:`;
+    return allowed.includes(origin) || localDev || (sameHost && sameProtocol);
+  } catch { return false; }
+}
+
+function requestProtocol(req: import('node:http').IncomingMessage) {
+  const forwarded = req.headers['x-forwarded-proto'];
+  return typeof forwarded === 'string' ? forwarded.split(',')[0]!.trim() : (req.socket as typeof req.socket & { encrypted?: boolean }).encrypted ? 'https' : 'http';
+}
 
 export function createRealtimeServer(options: { serveWeb?: boolean; roomService?: RoomService; maxEventsPerWindow?: number; noitu?: RuntimeNoituDictionary | null } = {}) {
   let io: SocketServer;
@@ -128,21 +148,6 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     } catch (error) { ack(failure(error)); }
   }
 
-  function originAllowed(origin: string | undefined, host?: string, protocol = 'http') {
-    if (!origin) return true;
-    try {
-      const parsed = new URL(origin);
-      const allowed = process.env.ALLOWED_ORIGINS?.split(',').map((x) => x.trim()).filter(Boolean) ?? [];
-      const localDev = (parsed.port === '5173' || parsed.port === '4173') && (
-        parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' ||
-        /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(parsed.hostname)
-      );
-      const sameHost = Boolean(host && parsed.host.toLowerCase() === host.toLowerCase());
-      const sameProtocol = parsed.protocol === `${protocol.replace(':', '')}:`;
-      return allowed.includes(origin) || localDev || (sameHost && sameProtocol);
-    } catch { return false; }
-  }
-
   io = new SocketServer(http, {
     path: '/socket.io',
     cors: {
@@ -152,9 +157,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       },
     },
     allowRequest: (req, callback) => {
-      const forwarded = req.headers['x-forwarded-proto'];
-      const protocol = typeof forwarded === 'string' ? forwarded.split(',')[0]!.trim() : (req.socket as typeof req.socket & { encrypted?: boolean }).encrypted ? 'https' : 'http';
-      callback(null, originAllowed(req.headers.origin, req.headers.host, protocol));
+      callback(null, originAllowed(req.headers.origin, req.headers.host, requestProtocol(req)));
     },
     maxHttpBufferSize: 16 * 1024,
     connectionStateRecovery: { maxDisconnectionDuration: 0, skipMiddlewares: false },
@@ -172,7 +175,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Hãy nhập biệt danh và chọn chế độ phòng.' });
       const value = parsed.data;
       idempotentRequest(socket, value.actionId, value, ack, () => {
-        const created = roomService.create(value.nickname, value.visibility, socket.id, value.gameKey);
+        const created = roomService.create(value.nickname, value.visibility, socket.id, value.gameKey, value.avatarId);
         socket.data.activeSession = { roomId: created.room.id, playerId: created.seat.id, generation: created.seat.generation };
         void socket.join('room:' + created.room.id);
         return { ok: true, actionId: value.actionId, credentials: created.credentials, snapshot: roomService.snapshot(created.room, created.seat.id) };
@@ -184,7 +187,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Mã phòng hoặc biệt danh chưa hợp lệ.' });
       const value = parsed.data;
       idempotentRequest(socket, value.actionId, value, ack, () => {
-        const joined = roomService.join(value.code, value.nickname, socket.id);
+        const joined = roomService.join(value.code, value.nickname, socket.id, value.avatarId);
         socket.data.activeSession = { roomId: joined.room.id, playerId: joined.seat.id, generation: joined.seat.generation };
         void socket.join('room:' + joined.room.id);
         broadcast(joined.room.id);
@@ -204,10 +207,11 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       } catch (error) { ack(failure(error)); }
     });
     socket.on('room:ready', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema.extend({ ready: readySchema.shape.ready }).strict(), ack, (room, seat, value) => roomService.ready(room, seat, value.ready)));
+    socket.on('room:caro-settings', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, caroSettingsSchema, ack, (room, seat, value) => roomService.setCaroWinLength(room, seat, value.winLength)));
     socket.on('room:visibility', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema.extend({ visibility: visibilitySchema.shape.visibility }).strict(), ack, (room, seat, value) => roomService.setVisibility(room, seat, value.visibility)));
     socket.on('room:start', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema, ack, (room, seat) => {
       roomService.start(room, seat);
-      if (room.gameKey === 'noitu') return;
+      if (room.gameKey !== 'uno') return;
       const game = room.game!;
       return { gameEffect: { eventId: `${game.gameId}:${game.revision}`, roomId: room.id, gameId: game.gameId, revision: room.revision, gameRevision: game.revision, actionType: 'start', actorId: seat.id, direction: game.direction, ...(game.currentColor ? { currentColor: game.currentColor } : {}) } };
     }));
@@ -252,6 +256,10 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     socket.on('noitu:action', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, noituActionSchema, ack, (room, seat, value) => {
       if (room.gameKey !== 'noitu' || !room.noituGame || room.noituGame.gameId !== value.gameId) throw new RoomError('STALE_GAME', 'Ván đã thay đổi. Hãy chờ bàn chơi cập nhật.');
       roomService.noituAction(room, seat, value.expectedRevision, value);
+    }));
+    socket.on('caro:action', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, caroActionSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'caro' || !room.caroGame || room.caroGame.gameId !== value.gameId) throw new RoomError('STALE_GAME', 'Ván đã thay đổi. Hãy chờ bàn chơi cập nhật.');
+      roomService.caroAction(room, seat, value.expectedRevision, value);
     }));
     socket.on('noitu:draft', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
@@ -301,6 +309,29 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
   http.on('request', (req, res) => {
     const pathname = new URL(req.url ?? '/', 'http://local').pathname;
     if (pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: true })); return; }
+    if (pathname.startsWith('/api/')) {
+      const origin = req.headers.origin;
+      res.setHeader('Vary', 'Origin');
+      if (origin && !originAllowed(origin, req.headers.host, requestProtocol(req))) {
+        res.writeHead(403, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, code: 'ORIGIN_NOT_ALLOWED', message: 'Nguồn truy cập này chưa được cho phép.' }));
+        return;
+      }
+      if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+      if (req.method === 'OPTIONS') {
+        if (pathname !== '/api/rooms' && pathname !== '/api/games') {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); return;
+        }
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Access-Control-Max-Age', '600');
+        res.writeHead(204); res.end(); return;
+      }
+      if (req.method !== 'GET') {
+        res.writeHead(405, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'Allow': 'GET, OPTIONS' });
+        res.end(JSON.stringify({ ok: false, message: 'API này chỉ hỗ trợ GET.' })); return;
+      }
+    }
     if (pathname === '/api/rooms' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(roomService.publicRooms())); return;
@@ -309,7 +340,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key) })))); return;
     }
-    if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
+    if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
   });
   return { http, io, rooms: roomService };
 }
@@ -318,7 +349,7 @@ if (process.env.NODE_ENV !== 'test') {
   const app = createRealtimeServer();
   const host = process.env.HOST ?? '0.0.0.0';
   const port = Number(process.env.PORT ?? 3001);
-  app.http.listen(port, host, () => console.log('Bàn Bạn server đang chạy tại http://' + host + ':' + port));
+  app.http.listen(port, host, () => console.log('Hội Quậy server đang chạy tại http://' + host + ':' + port));
   const close = () => { app.rooms.destroyAll(); app.io.close(); };
   process.on('SIGINT', close); process.on('SIGTERM', close);
 }

@@ -6,6 +6,7 @@
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
     "@banban/noitu": "*",
+    "@banban/caro": "*",
     "@banban/uno": "*"
   }
 }

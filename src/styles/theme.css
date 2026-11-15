@@ -1,37 +1,37 @@
-/* Palette B — Đêm tím */
+/* Hội Quậy — Đêm đỏ, charcoal + vermilion */
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --page: #12101d;
-  --page-raised: #171424;
-  --surface: #1a1728;
-  --surface-raised: #211d33;
-  --surface-soft: #29213f;
-  --line: rgba(233, 224, 255, 0.1);
-  --line-strong: rgba(233, 224, 255, 0.18);
-  --text: #f6f2ff;
-  --text-muted: #aaa3bc;
-  --text-faint: #918AA4;
-  --accent: #b9a2ff;
-  --accent-strong: #9f81ff;
-  --accent-ink: #201936;
+  --page: #151112;
+  --page-raised: #1c1617;
+  --surface: #21191b;
+  --surface-raised: #2a2022;
+  --surface-soft: #342326;
+  --line: rgba(255, 225, 220, 0.1);
+  --line-strong: rgba(255, 225, 220, 0.18);
+  --text: #fff5f2;
+  --text-muted: #c3b3b5;
+  --text-faint: #b3a0a3;
+  --accent: #ff8275;
+  --accent-strong: #ff695c;
+  --accent-ink: #29120f;
   --table-red: #ff858f;
   --table-blue: #91baff;
   --table-green: #83ddb3;
   --table-yellow: #f2cf71;
-  --table-wild: #b9a2ff;
+  --table-wild: #ff8275;
   --mint: #82dfc2;
   --coral: #ff8799;
   --warning: #f5bc76;
-  --home-muted: #b4b0cf;
-  --home-cta-start: #a78bfa;
-  --home-cta-end: #7c5cf0;
-  --home-cta-ink: #06040a;
+  --home-muted: #cbb9bc;
+  --home-cta-start: #ff9386;
+  --home-cta-end: #f36b5e;
+  --home-cta-ink: #29120f;
   --home-radius-card: 22px;
   --home-card-shadow: 0 18px 45px rgba(4, 3, 10, .3);
-  --home-card-hover-shadow: 0 24px 54px rgba(81, 55, 161, .27);
+  --home-card-hover-shadow: 0 24px 54px rgba(146, 43, 38, .27);
   --home-motion: cubic-bezier(.2, .8, .2, 1);
   --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-sm: 10px;
@@ -52,7 +52,7 @@ body { min-width: 320px; margin: 0; background: var(--page); color: var(--text);
 button, input, select { font: inherit; }
 button { color: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-::selection { background: rgba(185, 162, 255, .34); color: var(--text); }
+::selection { background: rgba(255, 130, 117, .34); color: var(--text); }
 
 /* Lucian UX/UI Prompt theme tokens, MIT License (c) 2026 Seokwoooo. */
 :root {
@@ -67,16 +67,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   --ux-line-2: var(--line-strong);
   --ux-accent: var(--accent);
   --ux-accent-2: #9ac4ff;
-  --ux-accent-soft: rgba(185, 162, 255, .15);
+  --ux-accent-soft: rgba(255, 130, 117, .15);
   --ux-accent-ink: var(--accent-ink);
   --ux-mint: var(--mint);
   --ux-warn: var(--warning);
   --ux-danger: var(--coral);
-  --ux-glass: rgba(33, 29, 51, .85);
+  --ux-glass: rgba(42, 32, 34, .85);
   --ux-glass-line: var(--line-strong);
   --ux-shadow: rgba(4, 3, 10, .38);
   --ux-shadow-strong: rgba(4, 3, 10, .72);
-  --ux-grad: linear-gradient(120deg, #b9a2ff, #7db4ff 55%, #a5f2d3);
+  --ux-grad: linear-gradient(120deg, #ff8275, #f36b5e);
   --ux-ease: cubic-bezier(.2, .8, .2, 1);
   --ux-spring: cubic-bezier(.34, 1.45, .64, 1);
 }

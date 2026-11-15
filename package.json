@@ -1,11 +1,12 @@
 {
-  "name": "ban-ban-demo",
+  "name": "hoi-quay",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "workspaces": ["packages/*", "server"],
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"vite --host 0.0.0.0\" \"npm --workspace @banban/server run dev\"",
+    "build:client": "tsc -b && vite build",
     "build": "tsc -b && npm --workspace @banban/server run typecheck && vite build",
     "typecheck": "tsc -b && npm --workspace @banban/server run typecheck",
     "test": "vitest run",

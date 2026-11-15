@@ -1,15 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { GAME_CATALOG, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, roomClosedSchema, type GameEffectEvent, type GameKey, type NoituDraftNotice, type PublicRoomSummary, type RoomSnapshot, type RoomVisibility, type SessionCredentials } from '@banban/shared';
+import { GAME_CATALOG, type GameEffectEvent, type GameKey, type NoituDraftNotice, type PublicRoomSummary, type RoomSnapshot, type RoomVisibility, type SessionCredentials } from '@banban/shared';
 import type { UnoCard, projectGame } from '@banban/uno';
+import CaroTable from './caro/CaroTable';
 import NoituTable from './noitu/NoituTable';
 import { rejectedProposalBetween, type ProposalView, type RejectionPresentation } from './noitu/word-tiles';
-import CopyInviteCard from './components/CopyInviteCard';
+import RoomInviteActions from './components/RoomInviteActions';
 import InlineNicknameEdit from './components/InlineNicknameEdit';
-import { createActionId } from './action-id';
+import ConfirmKickDialog, { useKickConfirmation } from './components/ConfirmKickDialog';
+import PlayerAvatar, { AVATAR_COUNT, AVATAR_LABELS } from './components/PlayerAvatar';
 import { flightTransform, penaltyImpact, shouldPlayGameEffect, type FlightRect } from './game-effects';
+import { AppApiClient } from './api/client';
+import type { ApiReply, CaroActionIntent, NoituActionIntent, RoomCommandInput, UnoActionIntent } from './api/realtime';
 
-type Page = 'home' | 'uno' | 'noitu' | 'lobby' | 'table' | 'preview';
+type Page = 'home' | 'uno' | 'noitu' | 'caro' | 'lobby' | 'table' | 'preview';
 type DemoState = 'your-turn' | 'waiting' | 'drawn' | 'choose-color' | 'uno-window' | 'catch-uno' | 'wild-four' | 'disconnected' | 'finished';
 type UnoColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild';
 type CardInfo = { id: string; face: string; color: UnoColor; label: string; playable: boolean };
@@ -25,6 +28,8 @@ const demoCards: CardInfo[] = [
 ];
 
 const demoNames = ['Khoa', 'Linh', 'Tú', 'An', 'Bảo'];
+const starterNames = ['Mây', 'Mít', 'Bắp', 'Cốm', 'Gấu', 'Nấm', 'Cam', 'Sữa', 'Tôm', 'Sóc', 'Bơ', 'Đậu'];
+const randomIndex = (length: number) => crypto.getRandomValues(new Uint32Array(1))[0]! % length;
 
 function Icon({ name, size = 20 }: { name: 'arrow' | 'back' | 'check' | 'copy' | 'info' | 'spark' | 'plus' | 'close' | 'rules' | 'link' | 'chevron' | 'volume'; size?: number }) {
   const paths: Record<typeof name, ReactNode> = {
@@ -45,7 +50,7 @@ function Icon({ name, size = 20 }: { name: 'arrow' | 'back' | 'check' | 'copy' |
 }
 
 function Brand() {
-  return <span className="brand-mark" aria-hidden="true"><i /><i /><i /></span>;
+  return <span className="brand-mark" aria-hidden="true"><img src="/favicon.svg" alt="" width="34" height="34" /></span>;
 }
 
 function DemoTag({ children = 'BẢN XEM THỬ' }: { children?: string }) {
@@ -63,7 +68,11 @@ function HeroCard({ face, color, className }: { face: string; color: 'red' | 'bl
 
 function App() {
   const [page, setPage] = useState<Page>('home');
-  const [nickname, setNickname] = useState(() => localStorage.getItem('banban-nickname') || 'Mây');
+  const [nickname, setNickname] = useState(() => localStorage.getItem('banban-nickname') || starterNames[randomIndex(starterNames.length)]!);
+  const [avatarId, setAvatarId] = useState(() => {
+    const saved = Number(localStorage.getItem('banban-avatar'));
+    return localStorage.getItem('banban-avatar') !== null && Number.isInteger(saved) && saved >= 0 && saved < AVATAR_COUNT ? saved : randomIndex(AVATAR_COUNT);
+  });
   const [nicknameOpen, setNicknameOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [roomCodeInput, setRoomCodeInput] = useState(new URLSearchParams(window.location.search).get('room') || '');
@@ -72,6 +81,7 @@ function App() {
   const [noituRejectedEvent, setNoituRejectedEvent] = useState<RejectionPresentation | null>(null);
   const noituRejectedEventId = useRef(0);
   const [noituAvailable, setNoituAvailable] = useState<boolean | null>(null);
+  const [caroAvailable, setCaroAvailable] = useState<boolean | null>(null);
   const roomSnapshotRef = useRef<RoomSnapshot | null>(roomSnapshot);
   const [gameEffect, setGameEffect] = useState<GameEffectEvent | null>(null);
   const seenEffectsRef = useRef(new Set<string>());
@@ -101,10 +111,11 @@ function App() {
     catch { return null; }
   });
   const sessionRef = useRef<SessionCredentials | null>(session);
-  const socketRef = useRef<Socket | null>(null);
+  const apiRef = useRef<AppApiClient | null>(null);
   const requestLockRef = useRef(false);
   const roomEpochRef = useRef(0);
   const [connected, setConnected] = useState(false);
+  const [backendConfigError, setBackendConfigError] = useState('');
   const [rooms, setRooms] = useState<PublicRoomSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [demoState, setDemoState] = useState<DemoState>('your-turn');
@@ -118,6 +129,7 @@ function App() {
   useEffect(() => {
     localStorage.setItem('banban-nickname', nickname);
   }, [nickname]);
+  useEffect(() => { localStorage.setItem('banban-avatar', String(avatarId)); }, [avatarId]);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -126,8 +138,6 @@ function App() {
   }, [session]);
 
   useEffect(() => {
-    const socket = io({ path: '/socket.io', reconnection: true, reconnectionDelay: 500, reconnectionDelayMax: 4000, timeout: 8000 });
-    socketRef.current = socket;
     const clearRoom = (message: string) => {
       roomEpochRef.current++;
       sessionRef.current = null; setSession(null); localStorage.removeItem('banban-session');
@@ -135,74 +145,71 @@ function App() {
       setNoituDraft(null);
       setNicknameOpen(false); setRulesOpen(false); setSelectedCard(null); setToast(message);
     };
-    socket.on('room:closed', (raw: unknown) => {
-      const parsed = roomClosedSchema.safeParse(raw);
-      if (parsed.success && parsed.data.roomId === sessionRef.current?.roomId) clearRoom(parsed.data.message);
+    let api: AppApiClient;
+    try {
+      api = new AppApiClient();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Cấu hình địa chỉ máy chủ không hợp lệ.';
+      setBackendConfigError(message);
+      setToast(message);
+      return;
+    }
+    apiRef.current = api;
+    setBackendConfigError('');
+    const unsubscribe = api.realtime.subscribe({
+      onRoomClosed: (payload) => { if (payload.roomId === sessionRef.current?.roomId) clearRoom(payload.message); },
+      onConnect: () => {
+        setConnected(true); setGameEffect(null); setNoituDraft(null);
+        const saved = sessionRef.current;
+        if (!saved) return;
+        const epoch = roomEpochRef.current;
+        void api.realtime.resumeSession(saved).then((reply) => {
+          if (epoch !== roomEpochRef.current) return;
+          if (!reply.ok || !reply.snapshot || !reply.credentials) {
+            clearRoom(reply.message || 'Phòng đã hết hạn. Hãy tạo hoặc tham gia phòng khác.');
+            return;
+          }
+          sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setGameEffect(null); seenEffectsRef.current.clear();
+          setPage(reply.snapshot.phase === 'waiting' ? 'lobby' : 'table');
+        }).catch(() => clearRoom('Không nối lại được phiên phòng. Hãy tạo hoặc tham gia phòng khác.'));
+      },
+      onDisconnect: () => { setConnected(false); setGameEffect(null); },
+      onConnectError: () => { setConnected(false); setGameEffect(null); },
+      onSnapshot: (snapshot) => {
+        if (snapshot.roomId !== sessionRef.current?.roomId) return;
+        const previous = roomSnapshotRef.current;
+        if (previous?.game && (!snapshot.game || (previous.game as ProjectedUnoGame).gameId !== (snapshot.game as ProjectedUnoGame).gameId)) { setGameEffect(null); seenEffectsRef.current.clear(); }
+        const oldNoitu = previous?.game as { gameId?: string; turnId?: string } | null;
+        const nextNoitu = snapshot.game as { gameId?: string; turnId?: string } | null;
+        if (snapshot.gameKey !== 'noitu' || oldNoitu?.gameId !== nextNoitu?.gameId || oldNoitu?.turnId !== nextNoitu?.turnId || snapshot.phase !== 'playing' || snapshot.paused) setNoituDraft(null);
+        commitSnapshot(snapshot);
+        setPage(snapshot.phase === 'waiting' ? 'lobby' : 'table');
+      },
+      onDraftChanged: (draft) => { if (draft.roomId === sessionRef.current?.roomId) setNoituDraft(draft); },
+      onDraftClear: (payload) => { if (payload.roomId === sessionRef.current?.roomId) setNoituDraft(null); },
+      onGameEffect: (event) => {
+        const current = roomSnapshotRef.current;
+        if (!shouldPlayGameEffect(event, current, seenEffectsRef.current)) return;
+        seenEffectsRef.current.add(event.eventId); if (seenEffectsRef.current.size > 128) seenEffectsRef.current.delete(seenEffectsRef.current.values().next().value!);
+        setGameEffect(event);
+      },
+      onSessionRevoked: (payload) => { clearRoom(payload.message || 'Phiên phòng này đã kết thúc.'); },
     });
-    socket.on('connect', () => {
-      setConnected(true);
-      setGameEffect(null);
-      setNoituDraft(null);
-      const saved = sessionRef.current;
-      if (!saved) return;
-      const epoch = roomEpochRef.current;
-      socket.emit('session:resume', saved, (reply: { ok: boolean; snapshot?: RoomSnapshot; credentials?: SessionCredentials; message?: string }) => {
-        if (epoch !== roomEpochRef.current) return;
-        if (!reply.ok || !reply.snapshot || !reply.credentials) {
-          clearRoom(reply.message || 'Phòng đã hết hạn. Hãy tạo hoặc tham gia phòng khác.');
-          return;
-        }
-        sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setGameEffect(null); seenEffectsRef.current.clear();
-        setPage(reply.snapshot.phase === 'waiting' ? 'lobby' : 'table');
-      });
-    });
-    socket.on('disconnect', () => { setConnected(false); setGameEffect(null); });
-    socket.on('connect_error', () => { setConnected(false); setGameEffect(null); });
-    socket.on('room:snapshot', (snapshot: RoomSnapshot) => {
-      if (snapshot.roomId !== sessionRef.current?.roomId) return;
-      const previous = roomSnapshotRef.current;
-      if (previous?.game && (!snapshot.game || (previous.game as ProjectedUnoGame).gameId !== (snapshot.game as ProjectedUnoGame).gameId)) { setGameEffect(null); seenEffectsRef.current.clear(); }
-      const oldNoitu = previous?.game as { gameId?: string; turnId?: string } | null;
-      const nextNoitu = snapshot.game as { gameId?: string; turnId?: string } | null;
-      if (snapshot.gameKey !== 'noitu' || oldNoitu?.gameId !== nextNoitu?.gameId || oldNoitu?.turnId !== nextNoitu?.turnId || snapshot.phase !== 'playing' || snapshot.paused) setNoituDraft(null);
-      commitSnapshot(snapshot);
-      setPage(snapshot.phase === 'waiting' ? 'lobby' : 'table');
-    });
-    socket.on('noitu:draft:changed', (raw: unknown) => {
-      const parsed = noituDraftNoticeSchema.safeParse(raw);
-      if (parsed.success && parsed.data.roomId === sessionRef.current?.roomId) setNoituDraft(parsed.data);
-    });
-    socket.on('noitu:draft:clear', (raw: unknown) => {
-      const parsed = noituDraftClearSchema.safeParse(raw);
-      if (parsed.success && parsed.data.roomId === sessionRef.current?.roomId) setNoituDraft(null);
-    });
-    socket.on('game:effect', (raw: unknown) => {
-      const parsed = gameEffectSchema.safeParse(raw); if (!parsed.success) return;
-      const event = parsed.data; const current = roomSnapshotRef.current;
-      if (!shouldPlayGameEffect(event, current, seenEffectsRef.current)) return;
-      seenEffectsRef.current.add(event.eventId); if (seenEffectsRef.current.size > 128) seenEffectsRef.current.delete(seenEffectsRef.current.values().next().value!);
-      setGameEffect(event);
-    });
-    socket.on('session:revoked', (message: { message?: string }) => {
-      clearRoom(message?.message || 'Phiên phòng này đã kết thúc.');
-    });
-    return () => { socket.disconnect(); socketRef.current = null; };
+    return () => { unsubscribe(); api.close(); if (apiRef.current === api) apiRef.current = null; };
   }, []);
 
   useEffect(() => {
     let active = true;
-    const checkGames = async () => {
-      try {
-        const response = await fetch('/api/games', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Không tải được danh sách trò chơi.');
-        const items = await response.json() as Array<{ key: GameKey; available: boolean }>;
-        const noitu = items.find((item) => item.key === 'noitu');
-        if (active) setNoituAvailable(Boolean(noitu?.available));
-      } catch { if (active) setNoituAvailable(false); }
-    };
-    void checkGames();
-    return () => { active = false; };
-  }, []);
+    const controller = new AbortController();
+    const api = apiRef.current;
+    if (!api) { setNoituAvailable(false); setCaroAvailable(false); return () => { active = false; controller.abort(); }; }
+    void api.http.fetchGames(controller.signal).then((items) => {
+      const noitu = items.find((item) => item.key === 'noitu');
+      const caro = items.find((item) => item.key === 'caro');
+      if (active) { setNoituAvailable(Boolean(noitu?.available)); setCaroAvailable(Boolean(caro?.available)); }
+    }).catch(() => { if (active) { setNoituAvailable(false); setCaroAvailable(false); } });
+    return () => { active = false; controller.abort(); };
+  }, [connected]);
 
   useEffect(() => {
     if (roomSnapshot?.phase === 'waiting') setPage('lobby');
@@ -232,10 +239,10 @@ function App() {
   }, [nicknameOpen]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || backendConfigError) return;
     const timer = window.setTimeout(() => setToast(''), 2600);
     return () => window.clearTimeout(timer);
-  }, [toast]);
+  }, [toast, backendConfigError]);
 
   useEffect(() => {
     const clearVisualEffect = () => { if (document.visibilityState === 'hidden') setGameEffect(null); };
@@ -260,22 +267,12 @@ function App() {
     setRulesOpen(true);
   }
 
-  function emitAck<T extends { ok: boolean; code?: string; message?: string; credentials?: SessionCredentials; snapshot?: RoomSnapshot }>(event: string, payload: unknown): Promise<T> {
-    return new Promise((resolve) => {
-      const socket = socketRef.current;
-      if (!socket?.connected) { resolve({ ok: false, code: 'DISCONNECTED', message: 'Đang kết nối lại. Thử lại sau nhé.' } as T); return; }
-      socket.timeout(7000).emit(event, payload, (error: Error | null, response: T) => {
-        resolve(error ? ({ ok: false, code: 'TIMEOUT', message: 'Máy chủ chưa phản hồi. Hãy thử lại.' } as T) : response);
-      });
-    });
-  }
-
   async function createRoom(visibility: RoomVisibility, gameKey: GameKey = 'uno') {
     if (requestLockRef.current) return;
     requestLockRef.current = true; setBusy(true);
     const epoch = roomEpochRef.current;
     try {
-      const reply = await emitAck('room:create', { actionId: createActionId(), nickname, visibility, gameKey });
+      const reply = await apiRef.current?.realtime.createRoom({ nickname, avatarId, visibility, gameKey }) ?? { ok: false, message: 'API máy chủ chưa sẵn sàng.' };
       if (epoch !== roomEpochRef.current) return;
       if (!reply.ok || !reply.credentials || !reply.snapshot) { setToast(reply.message || 'Chưa tạo được phòng.'); return; }
       sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage('lobby');
@@ -292,7 +289,7 @@ function App() {
     requestLockRef.current = true; setBusy(true);
     const epoch = roomEpochRef.current;
     try {
-      const reply = await emitAck('room:join', { actionId: createActionId(), code: roomCodeToJoin, nickname });
+      const reply = await apiRef.current?.realtime.joinRoom({ code: roomCodeToJoin, nickname, avatarId }) ?? { ok: false, message: 'API máy chủ chưa sẵn sàng.' };
       if (epoch !== roomEpochRef.current) return;
       if (!reply.ok || !reply.credentials || !reply.snapshot) { setToast(reply.message || 'Chưa vào được phòng.'); return; }
       setRoomCodeInput(roomCodeToJoin); sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage('lobby');
@@ -301,15 +298,12 @@ function App() {
     } finally { if (epoch === roomEpochRef.current) { requestLockRef.current = false; setBusy(false); } }
   }
 
-  async function roomCommand(event: string, body: Record<string, unknown> = {}) {
-    if (!session || !roomSnapshot) return { ok: false, message: 'Phiên phòng chưa sẵn sàng.' };
+  async function runApiCommand(request: () => Promise<ApiReply>): Promise<ApiReply> {
     if (requestLockRef.current) return { ok: false, message: 'Đang xử lý thao tác trước đó.' };
     requestLockRef.current = true; setBusy(true);
     const epoch = roomEpochRef.current;
     try {
-      const reply = await emitAck<{ ok: boolean; message?: string; snapshot?: RoomSnapshot }>(event, {
-        actionId: createActionId(), roomId: session.roomId, expectedRevision: roomSnapshot.revision, ...body,
-      });
+      const reply = await request();
       if (epoch !== roomEpochRef.current) return { ok: false, message: 'Phiên phòng đã kết thúc.' };
       if (reply.snapshot) commitSnapshot(reply.snapshot);
       if (!reply.ok) setToast(reply.message || 'Thao tác chưa thực hiện được.');
@@ -321,35 +315,48 @@ function App() {
     } finally { if (epoch === roomEpochRef.current) { requestLockRef.current = false; setBusy(false); } }
   }
 
+  async function roomCommand(command: RoomCommandInput): Promise<ApiReply> {
+    if (!session || !roomSnapshot) return { ok: false, message: 'Phiên phòng chưa sẵn sàng.' };
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.roomCommand(session.roomId, roomSnapshot.revision, command));
+  }
+
   async function leaveRoom(nextPage: Page = 'home') {
     if (!session || !roomSnapshot) { setPage(nextPage); return; }
-    const reply = await roomCommand('room:leave');
+    const reply = await roomCommand({ event: 'room:leave' });
     if (!reply.ok) return;
     sessionRef.current = null; roomEpochRef.current++;
     setSession(null); commitSnapshot(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage(nextPage);
   }
 
-  async function sendGameAction(action: Record<string, unknown>) {
-    if (!roomSnapshot || roomSnapshot.gameKey !== 'uno' || !roomSnapshot.game) return { ok: false, message: 'Ván UNO chưa sẵn sàng.' };
+  async function sendGameAction(action: UnoActionIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'uno' || !roomSnapshot.game || !session) return { ok: false, message: 'Ván UNO chưa sẵn sàng.' };
     const game = roomSnapshot.game;
-    return roomCommand('game:action', { ...action, gameId: game.gameId });
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.gameAction(session.roomId, roomSnapshot.revision, game.gameId, action));
   }
 
-  async function sendNoituAction(action: Record<string, unknown>) {
-    if (!roomSnapshot || roomSnapshot.gameKey !== 'noitu' || !roomSnapshot.game) return { ok: false, message: 'Ván Nối từ chưa sẵn sàng.' };
+  async function sendNoituAction(action: NoituActionIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'noitu' || !roomSnapshot.game || !session) return { ok: false, message: 'Ván Nối từ chưa sẵn sàng.' };
     const game = roomSnapshot.game;
-    return roomCommand('noitu:action', { ...action, gameId: game.gameId });
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.noituAction(session.roomId, roomSnapshot.revision, game.gameId, action));
+  }
+
+  async function sendCaroAction(action: CaroActionIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'caro' || !roomSnapshot.game || !session) return { ok: false, message: 'Ván Caro chưa sẵn sàng.' };
+    const game = roomSnapshot.game;
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.caroAction(session.roomId, roomSnapshot.revision, game.gameId, action));
   }
 
   function sendNoituDraft(value: { gameId: string; turnId: string; sequence: number; suffix: string }) {
-    if (!session || !socketRef.current?.connected) return;
-    socketRef.current.emit('noitu:draft', { roomId: session.roomId, ...value });
-  }
-
-  function openTable() {
-    setDemoState('your-turn');
-    setPlayerCount(4);
-    setPage('preview');
+    if (!session || !apiRef.current) return;
+    apiRef.current.realtime.sendNoituDraft({ roomId: session.roomId, ...value });
   }
 
   function playCard(card: CardInfo) {
@@ -366,44 +373,52 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand-button" type="button" onClick={() => { if (session && roomSnapshot) void leaveRoom('home'); else setPage('home'); }} aria-label="Về trang chủ Bàn Bạn">
-          <Brand /><span>Bàn Bạn</span>
+        <button className="brand-button" type="button" onClick={() => { if (session && roomSnapshot) void leaveRoom('home'); else setPage('home'); }} aria-label="Về trang chủ Hội Quậy">
+          <Brand /><span>Hội Quậy</span>
         </button>
         <nav className="top-nav" aria-label="Điều hướng chính">
           <button className={page === 'home' ? 'nav-link active' : 'nav-link'} type="button" onClick={() => { if (session && roomSnapshot) void leaveRoom('home'); else setPage('home'); }}>Trò chơi</button>
           <button className="nav-link" type="button" onClick={openRules}>Luật chơi</button>
         </nav>
-        <div className="top-user">
-          <span className="avatar avatar-you">{nickname.slice(0, 1).toUpperCase()}</span>
+        <button ref={nicknameTriggerRef} className="top-user top-user-trigger" type="button" aria-label={`Đổi tên và hình, hiện tại ${nickname}`} onClick={() => setNicknameOpen(true)}>
+          <PlayerAvatar id={avatarId} className="avatar-you" />
           <span className="top-user-name">{nickname}</span>
-          <button ref={nicknameTriggerRef} className="button button-quiet button-small" type="button" onClick={() => setNicknameOpen(true)}>Đổi tên</button>
-        </div>
+          <span className="top-user-action">Tên & hình</span>
+        </button>
       </header>
 
       <main id="main-content">
-        {page === 'home' && <HomePage code={roomCodeInput} onCode={setRoomCodeInput} onJoin={joinRoom} noituAvailable={noituAvailable} onChooseUno={() => setPage('uno')} onChooseNoitu={() => setPage('noitu')} onToast={setToast} />}
-        {(page === 'uno' || page === 'noitu') && <GameIntro gameKey={page === 'noitu' ? 'noitu' : 'uno'} rooms={rooms} connected={connected} busy={busy} onRefresh={async () => { try { const response = await fetch('/api/rooms', { cache: 'no-store' }); if (response.ok) setRooms(await response.json() as PublicRoomSummary[]); } catch { /* danh sách công khai không ảnh hưởng việc nhập mã */ } }} onUseCode={(code) => { setRoomCodeInput(code); setPage('home'); }} onBack={() => setPage('home')} onCreate={(visibility, gameKey) => createRoom(visibility, gameKey)} onRules={openRules} onPreview={openTable} />}
-        {page === 'lobby' && roomSnapshot && <LobbyPage snapshot={roomSnapshot} connected={connected} busy={busy} onCommand={roomCommand} onLeave={() => void leaveRoom(roomSnapshot.gameKey === 'noitu' ? 'noitu' : 'uno')} onStart={() => void roomCommand('room:start')} onToast={setToast} />}
-        {page === 'table' && roomSnapshot && session && (roomSnapshot.gameKey === 'uno' ? <LiveTablePage snapshot={roomSnapshot} effect={gameEffect} playerId={session.playerId} nickname={nickname} connected={connected} busy={busy} onAction={sendGameAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} onToast={setToast} /> : <NoituTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} draft={noituDraft} rejectionEvent={noituRejectedEvent} onRejectionAnimationDone={(id) => setNoituRejectedEvent((event) => event?.id === id ? null : event)} onAction={sendNoituAction} onDraft={sendNoituDraft} onLeave={() => void leaveRoom('home')} onRules={openRules} onRematch={() => void roomCommand('room:rematch')} />)}
+        {page === 'home' && <HomePage code={roomCodeInput} onCode={setRoomCodeInput} onJoin={joinRoom} noituAvailable={noituAvailable} caroAvailable={caroAvailable} onChooseUno={() => setPage('uno')} onChooseNoitu={() => setPage('noitu')} onChooseCaro={() => setPage('caro')} onToast={setToast} />}
+        {(page === 'uno' || page === 'noitu' || page === 'caro') && <GameIntro gameKey={page} rooms={rooms} connected={connected} busy={busy} onRefresh={async () => { const api = apiRef.current; if (!api) return; try { setRooms(await api.http.fetchPublicRooms()); } catch { /* danh sách công khai không ảnh hưởng việc nhập mã */ } }} onJoinPublic={(code) => void joinRoom(code)} onBack={() => setPage('home')} onCreate={(visibility, gameKey) => createRoom(visibility, gameKey)} onRules={openRules} />}
+        {page === 'lobby' && roomSnapshot && <LobbyPage snapshot={roomSnapshot} connected={connected} busy={busy} onCommand={roomCommand} onLeave={() => void leaveRoom(roomSnapshot.gameKey)} onStart={() => void roomCommand({ event: 'room:start' })} onToast={setToast} />}
+        {page === 'table' && roomSnapshot && session && (roomSnapshot.gameKey === 'uno' ? <LiveTablePage snapshot={roomSnapshot} effect={gameEffect} playerId={session.playerId} nickname={nickname} connected={connected} busy={busy} onAction={sendGameAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} onToast={setToast} /> : roomSnapshot.gameKey === 'noitu' ? <NoituTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} draft={noituDraft} rejectionEvent={noituRejectedEvent} onRejectionAnimationDone={(id) => setNoituRejectedEvent((event) => event?.id === id ? null : event)} onAction={sendNoituAction} onDraft={sendNoituDraft} onLeave={() => void leaveRoom('home')} onRules={openRules} onRematch={() => void roomCommand({ event: 'room:rematch' })} /> : <CaroTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} onAction={sendCaroAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} />)}
         {page === 'preview' && <PreviewTablePage nickname={nickname} demoState={demoState} setDemoState={setDemoState} playerCount={playerCount} setPlayerCount={setPlayerCount} selectedCard={selectedCard} onCard={playCard} onToast={setToast} onBack={() => setPage('uno')} onRules={openRules} />}
       </main>
 
-      {page !== 'table' && <footer className="site-footer"><span>© 2026 Bàn Bạn</span><span>Dự án không chính thức, không liên kết với Mattel.</span><a href="https://service.mattel.com/instruction_sheets/W2085-Eng.pdf" target="_blank" rel="noreferrer">Nguồn bộ bài <Icon name="chevron" size={14} /></a></footer>}
+      {page !== 'table' && <footer className="site-footer"><span>© 2026 Hội Quậy</span><a href="https://service.mattel.com/instruction_sheets/W2085-Eng.pdf" target="_blank" rel="noreferrer">Nguồn bộ bài <Icon name="chevron" size={14} /></a></footer>}
 
       {nicknameOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setNicknameOpen(false); }}>
         <section className="modal-card nickname-modal" role="dialog" aria-modal="true" aria-labelledby="nickname-title" onKeyDown={keepFocusInside}>
           <button className="icon-button modal-close" type="button" aria-label="Đóng" onClick={() => setNicknameOpen(false)}><Icon name="close" /></button>
           <p className="eyebrow">HỒ SƠ CỦA BẠN</p>
-          <h2 id="nickname-title">Đổi biệt danh</h2>
-          <p className="modal-intro">Tên này chỉ được lưu trên thiết bị của bạn.</p>
+          <h2 id="nickname-title">Tên và hình của bạn</h2>
+          <p className="modal-intro">{roomSnapshot ? 'Thay đổi sẽ hiện với mọi người khi bạn vào phòng tiếp theo.' : 'Tên và hình sẽ được dùng khi bạn vào phòng.'}</p>
           <InlineNicknameEdit name={nickname} onSave={saveNickname} />
+          <div className="avatar-picker" role="group" aria-label="Chọn hình đại diện">
+            {AVATAR_LABELS.map((label, id) => <button key={label} type="button" className={id === avatarId ? 'is-selected' : ''} aria-label={`Hình ${label}`} aria-pressed={id === avatarId} onClick={() => setAvatarId(id)}><PlayerAvatar id={id} /><span>{label}</span></button>)}
+          </div>
         </section>
       </div>}
 
       {rulesOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setRulesOpen(false); }}>
         <section ref={rulesDialogRef} className="modal-card rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title" tabIndex={-1} onKeyDown={keepFocusInside}>
           <button className="icon-button modal-close" type="button" aria-label="Đóng luật chơi" onClick={() => setRulesOpen(false)}><Icon name="close" /></button>
-          {(page === 'noitu' || roomSnapshot?.gameKey === 'noitu') ? <>
+          {(page === 'caro' || roomSnapshot?.gameKey === 'caro') ? <>
+            <p className="eyebrow">CARO · HQ-CARO-1</p><h2 id="rules-title">Cách chơi Caro</h2>
+            <p className="modal-intro">Hai người lần lượt đặt X và O trên bàn 15 × 15. X đi trước; máy chủ chọn ngẫu nhiên người cầm X ván đầu, rồi đổi X/O khi cùng cặp chơi lại.</p>
+            <ul className="rules-list"><li><b>Số quân để thắng:</b> chủ phòng chọn 4, 5 hoặc 6 (mặc định 5). Nối đúng số quân đã chọn liên tiếp ngang, dọc hoặc chéo và còn ít nhất một đầu trống để thắng.</li><li><b>Đầu bị chặn:</b> quân đối phương hoặc mép bàn chặn một đầu. Bị chặn cả hai đầu thì chưa thắng; nối nhiều hơn số quân đã chọn cũng không thắng.</li><li><b>Lượt chơi:</b> mỗi lượt có 30 giây. Hết giờ hoặc chịu thua thì đối thủ thắng.</li><li><b>Mất kết nối:</b> ván tạm dừng và giữ thời gian còn lại khi người chơi nối lại. Rời phòng hoặc quá hạn nối lại sẽ hủy ván.</li><li><b>Hòa:</b> nếu bàn kín mà chưa có người thắng, ván hòa.</li></ul>
+            <p className="rules-note">Đây là biến thể HQ-CARO-1 dựa trên Standard Caro của Gomocup, không phải quy tắc duy nhất của mọi kiểu Caro.</p>
+          </> : (page === 'noitu' || roomSnapshot?.gameKey === 'noitu') ? <>
             <p className="eyebrow">NỐI TỪ · NT-VI-1</p><h2 id="rules-title">Cách chơi Nối từ</h2>
             <p className="modal-intro">Mỗi phòng có 2–6 người. Server chọn ngẫu nhiên người đi đầu; người đó nối tiếp từ mồi đã duyệt.</p>
             <ul className="rules-list"><li><b>Nối tiếng:</b> tiếng đầu tiên của từ mới phải trùng tiếng cuối từ trước; nhập tiếng thứ hai vào ô còn lại.</li><li><b>Từ hợp lệ:</b> từ chưa dùng và có trong bộ dữ liệu thử nghiệm sẽ được chấp nhận ngay. Server chuẩn hóa Unicode NFC, chữ thường và khoảng trắng.</li><li><b>Biểu quyết:</b> từ không có trong danh sách được đưa cho những người chơi còn lại bỏ phiếu trong 15 giây. Cần quá nửa số phiếu đủ điều kiện chấp nhận; nếu không đủ, từ bị bác và người đang lượt thử từ khác.</li><li><b>Thời gian:</b> mỗi lượt có 30 giây. Thời gian được giữ trong lúc nhóm biểu quyết. Hết giờ hoặc chịu thua sẽ loại người đó khỏi ván.</li><li><b>Kết thúc:</b> người cuối cùng còn trong ván thắng. Người đã bị loại vẫn ở lại phòng để xem.</li></ul>
@@ -411,7 +426,7 @@ function App() {
           </> : <>
           <p className="eyebrow">UNO · BB-UNO-1</p>
           <h2 id="rules-title">Luật chơi tóm tắt</h2>
-          <p className="modal-intro">Ván trực tuyến dùng luật tùy chỉnh Bàn Bạn BB-UNO-1, bộ 108 lá. Mỗi nước đi được máy chủ kiểm tra.</p>
+          <p className="modal-intro">Ván trực tuyến dùng luật tùy chỉnh Hội Quậy BB-UNO-1, bộ 108 lá. Mỗi nước đi được máy chủ kiểm tra.</p>
           <ul className="rules-list">
             <li><b>Mục tiêu:</b> đánh hết bài trên tay trước những người chơi khác.</li>
             <li><b>Bắt đầu:</b> mỗi người nhận 7 lá. Lá số cao nhất khi rút chọn người chia; người bên trái họ đi trước. Ghép lá theo màu, số hoặc ký hiệu.</li>
@@ -422,7 +437,7 @@ function App() {
             <li><b>UNO:</b> khi còn một lá, hô “UNO”. Nếu bị bắt trước khi người kế tiếp bắt đầu lượt, phải rút 2 lá.</li>
             <li><b>Hai người:</b> Đảo chiều như Bỏ lượt, người đánh được đi tiếp. Từ 3 người, đổi hướng rồi tới người kế theo hướng mới.</li>
           </ul>
-          <p className="rules-note">Luật cộng dồn là tùy chỉnh Bàn Bạn, không phải luật Mattel. Đánh hợp lệ lá cuối là thắng ngay, kể cả +2/+4 hoặc lá chức năng; người kế không cần nhận phạt. Wild/+4 vẫn chọn màu. Không nhảy lượt hoặc đánh nhiều lá cùng lúc. Khi chồng rút cạn, server xáo lại chồng bỏ còn lại và giữ lá trên cùng.</p>
+          <p className="rules-note">Luật cộng dồn là tùy chỉnh Hội Quậy, không phải luật Mattel. Đánh hợp lệ lá cuối là thắng ngay, kể cả +2/+4 hoặc lá chức năng; người kế không cần nhận phạt. Wild/+4 vẫn chọn màu. Không nhảy lượt hoặc đánh nhiều lá cùng lúc. Khi chồng rút cạn, server xáo lại chồng bỏ còn lại và giữ lá trên cùng.</p>
           <a className="source-link" href="https://service.mattel.com/instruction_sheets/W2085-Eng.pdf" target="_blank" rel="noreferrer">Mở nguồn chính thức của Mattel <Icon name="arrow" size={17} /></a>
           </>}
         </section>
@@ -449,7 +464,7 @@ function keepFocusInside(event: ReactKeyboardEvent<HTMLElement>) {
   }
 }
 
-function HomePage({ code, onCode, onJoin, noituAvailable, onChooseUno, onChooseNoitu, onToast }: { code: string; onCode: (value: string) => void; onJoin: () => void; noituAvailable: boolean | null; onChooseUno: () => void; onChooseNoitu: () => void; onToast: (message: string) => void }) {
+function HomePage({ code, onCode, onJoin, noituAvailable, caroAvailable, onChooseUno, onChooseNoitu, onChooseCaro, onToast }: { code: string; onCode: (value: string) => void; onJoin: () => void; noituAvailable: boolean | null; caroAvailable: boolean | null; onChooseUno: () => void; onChooseNoitu: () => void; onChooseCaro: () => void; onToast: (message: string) => void }) {
   const [interestedGames, setInterestedGames] = useState<string[]>([]);
   const updatePointerLight = (event: React.PointerEvent<HTMLElement>) => {
     if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
@@ -463,10 +478,10 @@ function HomePage({ code, onCode, onJoin, noituAvailable, onChooseUno, onChooseN
     onToast(alreadyInterested ? `Đã bỏ đánh dấu ${gameName} trên máy này.` : 'Đã đánh dấu trên máy này. Bản xem thử chưa gửi thông báo.');
   };
   const games = [
-    { name: 'UNO', players: '2–6 người', description: 'Ra lá thật nhanh, giữ nhịp vui cùng cả nhóm.', status: 'ĐANG MỞ', color: 'game-uno', action: onChooseUno },
-    { name: 'Caro', description: 'Một bàn cờ nhỏ, một nước đi chiến lược.', status: 'SẮP RA MẮT', color: 'game-caro' },
-    { name: 'Nối từ', players: '2–6 người', description: 'Nối đúng tiếng, giữ mạch từ qua từng lượt.', status: noituAvailable ? 'ĐANG MỞ' : noituAvailable === null ? 'ĐANG KIỂM TRA' : 'TẠM CHƯA SẴN SÀNG', color: 'game-word', action: noituAvailable ? onChooseNoitu : undefined },
-    { name: 'Gián điệp', description: 'Tìm người đang nắm bí mật khác biệt.', status: 'SẮP RA MẮT', color: 'game-spy' },
+    { name: 'UNO', players: '2–6 người', status: 'ĐANG MỞ', color: 'game-uno', action: onChooseUno },
+    { name: 'Caro', players: '2 người', status: caroAvailable ? 'ĐANG MỞ' : caroAvailable === null ? 'ĐANG KIỂM TRA' : 'TẠM CHƯA SẴN SÀNG', color: 'game-caro', action: caroAvailable ? onChooseCaro : undefined },
+    { name: 'Nối từ', players: '2–6 người', status: noituAvailable ? 'ĐANG MỞ' : noituAvailable === null ? 'ĐANG KIỂM TRA' : 'TẠM CHƯA SẴN SÀNG', color: 'game-word', action: noituAvailable ? onChooseNoitu : undefined },
+    { name: 'Gián điệp', status: 'SẮP RA MẮT', color: 'game-spy' },
   ];
 
   return <div className="page home-page">
@@ -475,9 +490,7 @@ function HomePage({ code, onCode, onJoin, noituAvailable, onChooseUno, onChooseN
       <div className="hero-stage">
         <div className="hero-card-orbit hero-card-orbit-left" aria-hidden="true"><HeroCard face="5" color="red" className="hero-card-one" /></div>
         <div className="hero-copy-block">
-          <p className="eyebrow">MỘT CHIẾC BÀN · CẢ HỘI BẠN</p>
-          <h1>Bạn bè đủ mặt,<br /><span>vào bàn thôi.</span></h1>
-          <p className="hero-copy">Gọi hội bạn. Chọn trò. Hẹn nhau quanh một chiếc bàn.</p>
+          <h1>Vô Vô,<br /><span>sắp đủ tay rồi !!</span></h1>
         </div>
         <div className="hero-card-orbit hero-card-orbit-right" aria-hidden="true">
           <HeroCard face="↻" color="blue" className="hero-card-two" />
@@ -488,23 +501,17 @@ function HomePage({ code, onCode, onJoin, noituAvailable, onChooseUno, onChooseN
       <form className="join-form" onSubmit={(event) => { event.preventDefault(); onJoin(); }}>
         <label htmlFor="room-code">Nhập mã phòng</label>
         <div className="join-control"><input id="room-code" value={code} onChange={(event) => onCode(event.target.value)} placeholder="VD: ABC123" maxLength={12} autoComplete="off" /><button className="button button-join-ghost" type="submit">Vào <Icon name="arrow" size={17} /></button></div>
-        <p>Có mã từ bạn bè? Nhập vào để tham gia.</p>
       </form>
-      <div className="home-benefits" aria-label="Thông tin cách chơi">
-        <span><i aria-hidden="true">✳</i>Không cần tài khoản</span>
-        <span><i aria-hidden="true">⌁</i>Chỉ cần một mã phòng</span>
-        <span><i aria-hidden="true">↗</i>Chơi ngay trên trình duyệt</span>
-      </div>
     </div>
     <section className="game-section" aria-labelledby="games-title">
-      <div className="section-heading"><div><p className="eyebrow">MỞ HỘI TRÊN MỘT CHIẾC BÀN</p><h2 id="games-title">Chọn trò chơi</h2></div><span className="section-count">{noituAvailable ? '02' : '01'} <span>/ 04 trò chơi</span></span></div>
+      <div className="section-heading"><div><h2 id="games-title">Chọn trò chơi</h2></div><span className="section-count">{1 + Number(Boolean(noituAvailable)) + Number(Boolean(caroAvailable))} <span>/ 04 trò chơi</span></span></div>
       <div className="game-grid">
         {games.map((game, index) => { const isLive = game.status === 'ĐANG MỞ'; return <article key={game.name} className={`game-card ${game.color} ${index === 0 ? 'featured' : isLive ? 'game-available' : 'coming-soon'}`} onPointerMove={updatePointerLight} onPointerLeave={(event) => { event.currentTarget.style.removeProperty('--mx'); event.currentTarget.style.removeProperty('--my'); }}>
           <div className="game-card-top"><span className={isLive ? 'game-state-live' : 'game-state-soon'}><i />{game.status}</span>{game.players && <span className="game-players">{game.players}</span>}</div>
           <div className="game-art-area">
-            {game.name === 'UNO' ? <div className="uno-card-stack" aria-hidden="true"><CardArt face="5" color="red" tilt="card-tilt-left" /><CardArt face="↻" color="blue" tilt="card-tilt-back" /><CardArt face="7" color="yellow" tilt="card-tilt-front" /></div> : <GamePlaceholder kind={game.name} />}
+            {game.name === 'UNO' ? <div className="uno-card-stack" aria-hidden="true"><CardArt face="5" color="red" tilt="card-tilt-left" /><CardArt face="↻" color="blue" tilt="card-tilt-back" /><CardArt face="7" color="yellow" tilt="card-tilt-front" /></div> : game.name === 'Caro' && isLive ? <div className="caro-card-art" aria-hidden="true"><span>×</span><i /><b>○</b><i /><span>○</span><i /><b>×</b><i /><span>×</span></div> : <GamePlaceholder kind={game.name} />}
           </div>
-          <div className="game-card-bottom"><div className="game-card-copy"><h3>{game.name}</h3><p>{game.description}</p></div>{isLive ? <button className={`button ${game.name === 'UNO' ? 'button-primary game-play' : 'button-secondary game-play'}`} type="button" onClick={game.action}>{game.name === 'UNO' ? 'Chơi UNO' : 'Chơi Nối từ'} <Icon name="arrow" size={17} /></button> : game.name === 'Nối từ' ? <button className="button interest-button" type="button" disabled>{noituAvailable === null ? 'Đang kiểm tra dữ liệu…' : 'Từ điển chưa sẵn sàng'}</button> : <button className={`button interest-button${interestedGames.includes(game.name) ? ' is-marked' : ''}`} type="button" aria-pressed={interestedGames.includes(game.name)} onClick={() => toggleInterest(game.name)}>{interestedGames.includes(game.name) ? 'Đã đánh dấu' : 'Báo tôi khi ra mắt'}</button>}</div>
+          <div className="game-card-bottom"><div className="game-card-copy"><h3>{game.name}</h3></div>{isLive ? <button className={`button ${game.name === 'UNO' ? 'button-primary game-play' : 'button-secondary game-play'}`} type="button" onClick={game.action}>{game.name === 'UNO' ? 'Chơi UNO' : `Chơi ${game.name}`} <Icon name="arrow" size={17} /></button> : game.name === 'Nối từ' ? <button className="button interest-button" type="button" disabled>{noituAvailable === null ? 'Đang kiểm tra dữ liệu…' : 'Từ điển chưa sẵn sàng'}</button> : game.name === 'Caro' ? <button className="button interest-button" type="button" disabled>{caroAvailable === null ? 'Đang kiểm tra…' : 'Chưa kết nối máy chủ'}</button> : <button className={`button interest-button${interestedGames.includes(game.name) ? ' is-marked' : ''}`} type="button" aria-pressed={interestedGames.includes(game.name)} onClick={() => toggleInterest(game.name)}>{interestedGames.includes(game.name) ? 'Đã đánh dấu' : 'Báo tôi khi ra mắt'}</button>}</div>
         </article>; })}
       </div>
     </section>
@@ -517,7 +524,7 @@ function GamePlaceholder({ kind }: { kind: string }) {
   return <div className="spy-art" aria-hidden="true"><span>?</span><i /><span>?</span><i /><span>?</span></div>;
 }
 
-function GameIntro({ gameKey, rooms, connected, busy, onRefresh, onUseCode, onBack, onCreate, onRules, onPreview }: { gameKey: GameKey; rooms: PublicRoomSummary[]; connected: boolean; busy: boolean; onRefresh: () => void; onUseCode: (code: string) => void; onBack: () => void; onCreate: (visibility: RoomVisibility, gameKey: GameKey) => void; onRules: () => void; onPreview: () => void }) {
+function GameIntro({ gameKey, rooms, connected, busy, onRefresh, onJoinPublic, onBack, onCreate, onRules }: { gameKey: GameKey; rooms: PublicRoomSummary[]; connected: boolean; busy: boolean; onRefresh: () => void; onJoinPublic: (code: string) => void; onBack: () => void; onCreate: (visibility: RoomVisibility, gameKey: GameKey) => void; onRules: () => void }) {
   const [visibility, setVisibility] = useState<RoomVisibility>('private');
   const game = GAME_CATALOG[gameKey];
   const gameRooms = rooms.filter((room) => room.gameKey === gameKey);
@@ -525,35 +532,35 @@ function GameIntro({ gameKey, rooms, connected, busy, onRefresh, onUseCode, onBa
   return <div className="page subpage">
     <button className="back-link" type="button" onClick={onBack}><Icon name="back" size={18} />Tất cả trò chơi</button>
     <section className="uno-intro-card">
-      <div className="uno-intro-copy"><p className="eyebrow">TRÒ CHƠI ĐANG CÓ</p><h1>{game.name}<span> · {game.minPlayers}–{game.maxPlayers} người</span></h1><p>{gameKey === 'uno' ? 'Thêm bạn vào bàn, chia bài và bắt đầu một ván chơi thật vui.' : 'Nối đúng tiếng qua từng lượt, cùng bạn bè giữ mạch từ.'}</p><div className="room-visibility-picker" role="group" aria-label="Chế độ phòng"><button type="button" className={visibility === 'private' ? 'selected' : ''} aria-pressed={visibility === 'private'} onClick={() => setVisibility('private')}>Riêng tư <small>Chỉ vào bằng mã</small></button><button type="button" className={visibility === 'public' ? 'selected' : ''} aria-pressed={visibility === 'public'} onClick={() => setVisibility('public')}>Công khai <small>Hiện trong danh sách</small></button></div><div className="intro-actions"><button className="button button-primary button-large" type="button" disabled={busy || !connected} onClick={() => onCreate(visibility, gameKey)}><Icon name="plus" size={19} />{busy ? 'Đang tạo…' : `Tạo phòng ${game.name}`}</button><button className="button button-secondary button-large" type="button" onClick={onRules}><Icon name="rules" size={18} />Luật chơi</button></div>{gameKey === 'uno' && <button className="text-link" type="button" onClick={onPreview}>Xem thử bàn chơi <span>(bản demo)</span><Icon name="arrow" size={16} /></button>}</div>
-      {gameKey === 'uno' ? <div className="uno-intro-art" aria-hidden="true"><div className="intro-halo" /><CardArt face="2" color="green" tilt="card-intro-left" /><CardArt face="↶" color="yellow" tilt="card-intro-back" /><CardArt face="7" color="blue" tilt="card-intro-front" /></div> : <div className="noitu-intro-art" aria-hidden="true"><div className="noitu-intro-orbit" /><div className="noitu-intro-tiles"><span>nấu</span><i>→</i><span>cơm</span></div><b>nước</b><small>MẠCH TỪ CỦA CẢ NHÓM</small></div>}
+      <div className="uno-intro-copy"><p className="eyebrow">TRÒ CHƠI ĐANG CÓ</p><h1>{game.name}<span> · {game.minPlayers === game.maxPlayers ? game.maxPlayers : `${game.minPlayers}–${game.maxPlayers}`} người</span></h1><div className="room-visibility-picker" role="group" aria-label="Chế độ phòng"><button type="button" className={visibility === 'private' ? 'selected' : ''} aria-pressed={visibility === 'private'} onClick={() => setVisibility('private')}>Riêng tư <small>Chỉ vào bằng mã</small></button><button type="button" className={visibility === 'public' ? 'selected' : ''} aria-pressed={visibility === 'public'} onClick={() => setVisibility('public')}>Công khai <small>Hiện trong danh sách</small></button></div><div className="intro-actions"><button className="button button-primary button-large" type="button" disabled={busy || !connected} onClick={() => onCreate(visibility, gameKey)}><Icon name="plus" size={19} />{busy ? 'Đang tạo…' : `Tạo phòng ${game.name}`}</button><button className="button button-secondary button-large" type="button" onClick={onRules}><Icon name="rules" size={18} />Luật chơi</button></div></div>
+      {gameKey === 'uno' ? <div className="uno-intro-art" aria-hidden="true"><div className="intro-halo" /><CardArt face="2" color="green" tilt="card-intro-left" /><CardArt face="↶" color="yellow" tilt="card-intro-back" /><CardArt face="7" color="blue" tilt="card-intro-front" /></div> : gameKey === 'noitu' ? <div className="noitu-intro-art" aria-hidden="true"><div className="noitu-intro-orbit" /><div className="noitu-intro-tiles"><span>nấu</span><i>→</i><span>cơm</span></div><b>nước</b><small>MẠCH TỪ CỦA CẢ NHÓM</small></div> : <div className="caro-intro-art" aria-hidden="true"><div className="caro-intro-grid"><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i></div><span>CHỌN NỐI 4 · 5 · 6</span></div>}
     </section>
-    <section className="public-rooms-panel"><div className="public-rooms-heading"><div><p className="eyebrow">PHÒNG CÔNG KHAI</p><h2>Tìm hội đang chờ</h2></div><button type="button" className="button button-quiet button-small" onClick={onRefresh}>Làm mới</button></div>{!connected ? <p className="public-room-empty">Đang kết nối máy chủ…</p> : gameRooms.length === 0 ? <p className="public-room-empty">Chưa có phòng {game.name} công khai đang chờ. Bạn vẫn có thể vào bằng mã bạn bè.</p> : <div className="public-room-list">{gameRooms.map((room) => <article className="public-room-row" key={room.code}><span className="public-room-icon"><Icon name="spark" size={18} /></span><div className="public-room-info"><strong>{room.hostName}</strong><small>{room.playerCount}/{room.maxPlayers} người · đang chờ</small></div><code>{room.code}</code><button className="button button-secondary button-small" type="button" onClick={() => onUseCode(room.code)}>Dùng mã</button></article>)}</div>}</section>
-    <div className="intro-note"><Icon name="info" size={18} /><p>Danh sách chỉ hiện phòng công khai còn chỗ. Bạn vẫn xác nhận tham gia bằng mã phòng.</p></div>
+    <section className="public-rooms-panel"><div className="public-rooms-heading"><div><p className="eyebrow">PHÒNG CÔNG KHAI</p><h2>Tìm hội đang chờ</h2></div><button type="button" className="button button-quiet button-small" onClick={onRefresh}>Làm mới</button></div>{!connected ? <p className="public-room-empty">Đang kết nối máy chủ…</p> : gameRooms.length === 0 ? <p className="public-room-empty">Chưa có phòng {game.name} công khai đang chờ. Bạn vẫn có thể vào bằng mã bạn bè.</p> : <div className="public-room-list">{gameRooms.map((room) => <button className="public-room-row" key={room.code} type="button" disabled={busy || !connected} onClick={() => onJoinPublic(room.code)} aria-label={`Vào phòng ${room.code} của ${room.hostName}`}><PlayerAvatar id={room.hostAvatarId} className="public-room-avatar" /><div className="public-room-info"><strong>{room.hostName}</strong><small>{room.playerCount}/{room.maxPlayers} người · đang chờ</small></div><code>{room.code}</code><span className="public-room-enter">Vào phòng <Icon name="arrow" size={16} /></span></button>)}</div>}</section>
   </div>;
 }
 
-function LobbyPage({ snapshot, connected, busy, onCommand, onLeave, onStart, onToast }: { snapshot: RoomSnapshot; connected: boolean; busy: boolean; onCommand: (event: string, body?: Record<string, unknown>) => Promise<{ ok: boolean; message?: string }>; onLeave: () => void; onStart: () => void; onToast: (message: string) => void }) {
+function LobbyPage({ snapshot, connected, busy, onCommand, onLeave, onStart, onToast }: { snapshot: RoomSnapshot; connected: boolean; busy: boolean; onCommand: (command: RoomCommandInput) => Promise<ApiReply>; onLeave: () => void; onStart: () => void; onToast: (message: string) => void }) {
   const me = snapshot.players.find((player) => player.isYou);
   const isHost = me?.isHost ?? false;
-  const shareLink = `${window.location.origin}/?room=${snapshot.code}`;
-  const changeVisibility = (visibility: RoomVisibility) => void onCommand('room:visibility', { visibility });
-  const kick = (playerId: string, nickname: string) => { if (window.confirm(`Mời ${nickname} ra khỏi phòng?`)) void onCommand('room:kick', { targetPlayerId: playerId }); };
+  const changeVisibility = (visibility: RoomVisibility) => void onCommand({ event: 'room:visibility', visibility });
+  const kick = useKickConfirmation();
   return <div className="page subpage lobby-page">
+    <ConfirmKickDialog target={kick.target} inGame={false} disabled={busy || !connected || !isHost} onCancel={kick.close} onConfirm={(targetPlayerId) => onCommand({ event: 'room:kick', targetPlayerId })} />
     <button className="back-link" type="button" onClick={onLeave}><Icon name="back" size={18} />Rời phòng</button>
     <div className="lobby-layout">
       <section className="lobby-main">
         <div className="lobby-title-row"><div><p className="eyebrow">{GAME_CATALOG[snapshot.gameKey].name.toUpperCase()} · PHÒNG {snapshot.visibility === 'private' ? 'RIÊNG TƯ' : 'CÔNG KHAI'}</p><h1>Phòng chờ</h1></div><span className="player-limit">{snapshot.players.length} / {snapshot.maxPlayers} người</span></div>
-        <div className="room-share-panel"><div><span className="mini-label">MÃ PHÒNG</span><strong className="room-code-display">{snapshot.code}</strong></div><span className="room-share-note"><Icon name="link" size={17} />Gửi mã này cho bạn bè</span><CopyInviteCard roomCode={snapshot.code} /></div>
+        <div className="room-share-panel"><span className="mini-label">MÃ PHÒNG</span><div className="room-share-main"><strong className="room-code-display">{snapshot.code}</strong><RoomInviteActions code={snapshot.code} /></div></div>
+        {snapshot.gameKey === 'caro' && <fieldset className="caro-settings"><legend>Số quân để thắng</legend><div className="caro-settings-options">{([4, 5, 6] as const).map((winLength) => <button key={winLength} className="button button-secondary" type="button" aria-pressed={snapshot.caroWinLength === winLength} disabled={!isHost || busy || !connected} onClick={() => void onCommand({ event: 'room:caro-settings', winLength })}>{winLength} quân</button>)}</div><small>{isHost ? 'Đổi luật sẽ yêu cầu khách sẵn sàng lại.' : 'Chủ phòng chọn trước khi bắt đầu.'} Nối đúng {snapshot.caroWinLength} quân và còn ít nhất một đầu trống.</small></fieldset>}
         <div className="lobby-roster"><div className="roster-heading"><h2>Người chơi</h2><span>{snapshot.players.length} / {snapshot.maxPlayers} ghế</span></div>
           {snapshot.players.map((seat, index) => <div key={seat.id} className={`roster-seat${seat.isYou ? ' is-you' : ''}${!seat.online ? ' is-empty' : ''}`}>
-            <span className={`avatar avatar-${index % 4}`}>{seat.nickname.slice(0, 1).toUpperCase()}</span><span className="roster-name">{seat.nickname}<small>{seat.isHost ? 'Chủ phòng' : seat.isYou ? 'Bạn' : seat.online ? 'Đã vào phòng' : 'Mất kết nối'}</small></span><span className={`seat-status ${!seat.online ? 'status-offline' : seat.isHost || seat.ready ? 'status-ready' : 'status-wait'}`}>{!seat.online ? 'Mất kết nối' : seat.isHost ? 'Chủ phòng' : seat.ready ? 'Sẵn sàng' : 'Chưa sẵn sàng'}</span>{isHost && !seat.isYou && <button className="button button-quiet button-small kick-button" type="button" onClick={() => kick(seat.id, seat.nickname)}>Mời ra</button>}
+            <PlayerAvatar id={seat.avatarId} className={`avatar-${index % 4}`} /><span className="roster-name">{seat.nickname}<small>{seat.isHost ? 'Chủ phòng' : seat.isYou ? 'Bạn' : seat.online ? 'Đã vào phòng' : 'Mất kết nối'}</small></span><span className={`seat-status ${!seat.online ? 'status-offline' : seat.isHost || seat.ready ? 'status-ready' : 'status-wait'}`}>{!seat.online ? 'Mất kết nối' : seat.isHost ? 'Chủ phòng' : seat.ready ? 'Sẵn sàng' : 'Chưa sẵn sàng'}</span>{isHost && !seat.isYou && <button className="button button-quiet button-small kick-button" type="button" onClick={() => kick.request(seat.id, seat.nickname)}>Mời ra</button>}
           </div>)}
         </div>
         {snapshot.notice && <div className="room-notice" role="status"><Icon name="info" size={18} />{snapshot.notice}</div>}
-        <div className="lobby-actions">{isHost ? <button className="button button-primary button-large" type="button" disabled={!snapshot.canStart || busy || !connected} title={snapshot.startReason ?? `Bắt đầu ${GAME_CATALOG[snapshot.gameKey].name}`} onClick={onStart}>Bắt đầu {GAME_CATALOG[snapshot.gameKey].name} <Icon name="arrow" size={17} /></button> : <button className={`button ${me?.ready ? 'button-secondary' : 'button-primary'} button-large`} type="button" disabled={busy || !connected} onClick={() => void onCommand('room:ready', { ready: !me?.ready })}>{me?.ready ? <><Icon name="check" />Đã sẵn sàng</> : 'Sẵn sàng'}</button>}<button className="button button-quiet button-large" type="button" disabled={busy} onClick={onLeave}>Rời phòng</button></div>
+        <div className="lobby-actions">{isHost ? <button className="button button-primary button-large" type="button" disabled={!snapshot.canStart || busy || !connected} title={snapshot.startReason ?? `Bắt đầu ${GAME_CATALOG[snapshot.gameKey].name}`} onClick={onStart}>Bắt đầu {GAME_CATALOG[snapshot.gameKey].name} <Icon name="arrow" size={17} /></button> : <button className={`button ${me?.ready ? 'button-secondary' : 'button-primary'} button-large`} type="button" disabled={busy || !connected} onClick={() => void onCommand({ event: 'room:ready', ready: !me?.ready })}>{me?.ready ? <><Icon name="check" />Đã sẵn sàng</> : 'Sẵn sàng'}</button>}<button className="button button-quiet button-large" type="button" disabled={busy} onClick={onLeave}>Rời phòng</button></div>
       </section>
-      <aside className="lobby-side"><div className="lobby-side-icon"><Icon name="spark" size={22} /></div><p className="eyebrow">{connected ? 'ĐANG KẾT NỐI' : 'ĐANG NỐI LẠI'}</p><h2>Mời hội bạn vào bàn</h2><p>Gửi mã phòng cho bạn bè. Chỉ người chơi đã sẵn sàng mới được chủ phòng đưa vào ván.</p><div className="lobby-side-divider" /><label className="visibility-toggle"><span><b>Phòng công khai</b><small>Hiện với người đang tìm phòng</small></span><input type="checkbox" checked={snapshot.visibility === 'public'} disabled={!isHost || busy || !connected} onChange={(event) => changeVisibility(event.target.checked ? 'public' : 'private')} /></label><div className="lobby-side-divider" /><button className="button button-secondary copy-link-button" type="button" onClick={async () => { try { await navigator.clipboard.writeText(shareLink); onToast('Đã sao chép link phòng.'); } catch { onToast(`Mã phòng: ${snapshot.code}`); } }}><Icon name="copy" size={17} />Sao chép link mời</button><button className="text-link" type="button" onClick={() => onToast(snapshot.startReason ?? 'Đã đủ điều kiện để bắt đầu.')}>Điều kiện bắt đầu <Icon name="chevron" size={16} /></button>{isHost && snapshot.startReason && <small className="start-reason">{snapshot.startReason}</small>}</aside>
+      <aside className="lobby-side"><p className="eyebrow">{connected ? 'ĐANG KẾT NỐI' : 'ĐANG NỐI LẠI'}</p><h2>Mời hội bạn vào bàn</h2><div className="lobby-side-divider" /><label className="visibility-toggle"><span><b>Phòng công khai</b><small>Hiện với người đang tìm phòng</small></span><input type="checkbox" checked={snapshot.visibility === 'public'} disabled={!isHost || busy || !connected} onChange={(event) => changeVisibility(event.target.checked ? 'public' : 'private')} /></label><div className="lobby-side-divider" /><button className="text-link" type="button" onClick={() => onToast(snapshot.startReason ?? 'Đã đủ điều kiện để bắt đầu.')}>Điều kiện bắt đầu <Icon name="chevron" size={16} /></button>{isHost && snapshot.startReason && <small className="start-reason">{snapshot.startReason}</small>}</aside>
     </div>
   </div>;
 }
@@ -581,7 +588,7 @@ function PreviewTablePage({ nickname, demoState, setDemoState, playerCount, setP
       <section className={`game-table state-${demoState}`} aria-label="Bàn UNO bản xem thử">
         {demoState === 'disconnected' && <div className="connection-banner"><span className="connection-indicator" /><div><strong>Mất kết nối</strong><small>Đang thử kết nối lại với phòng mẫu…</small></div><button className="button button-secondary button-small" type="button" onClick={() => { setDemoState('waiting'); onToast('Đã kết nối lại trong bản xem thử.'); }}>Thử lại</button></div>}
         <div className="opponent-seats">{opponents.map((name, index) => <div className={`opponent-seat ${positions[index]}${demoState === 'catch-uno' && name === 'Khoa' ? ' seat-alert' : ''}`} key={name}>
-          <span className={`avatar avatar-${index}`}>{name.slice(0, 1)}</span><span className="opponent-meta"><strong>{name}</strong><small>{demoState === 'waiting' && index === 0 ? 'Đang suy nghĩ…' : `${6 - (index % 3)} lá`}</small></span>{demoState === 'catch-uno' && name === 'Khoa' && <span className="uno-alert">UNO?</span>}
+          <PlayerAvatar id={index} className={`avatar-${index}`} /><span className="opponent-meta"><strong>{name}</strong><small>{demoState === 'waiting' && index === 0 ? 'Đang suy nghĩ…' : `${6 - (index % 3)} lá`}</small></span>{demoState === 'catch-uno' && name === 'Khoa' && <span className="uno-alert">UNO?</span>}
         </div>)}</div>
         <div className="felt-table">
           <span className="felt-ring ring-one" /><span className="felt-ring ring-two" />
@@ -595,15 +602,15 @@ function PreviewTablePage({ nickname, demoState, setDemoState, playerCount, setP
           {demoState === 'choose-color' && <div className="color-picker-card" role="dialog" aria-label="Chọn màu tiếp theo"><p>Chọn màu tiếp theo</p><div className="color-picker-options">{(['red', 'yellow', 'green', 'blue'] as const).map((color) => <button className={`color-choice color-${color}`} key={color} type="button" aria-label={colorNames[color]} onClick={() => { setShowColorPicker(false); setDemoState('waiting'); onToast(`Bản xem thử: đã chọn màu ${colorNames[color].toLowerCase()}.`); }} />)}</div></div>}
           {demoState === 'wild-four' && <div className="action-status-card"><span className="action-status-icon">+4</span><div><strong>Đổi màu Rút bốn</strong><small>Chọn cách xử lý trong bản demo</small></div><button className="button button-quiet button-small" type="button" onClick={() => { setDemoState('waiting'); onToast('Bản xem thử: bạn đã chấp nhận rút bốn lá.'); }}>Nhận 4 lá</button><button className="button button-primary button-small" type="button" onClick={() => { setDemoState('waiting'); onToast('Bản xem thử: cộng +4, tổng phạt 8 lá; màu đã chọn: xanh dương.'); }}>Cộng +4</button></div>}
           {demoState === 'catch-uno' && <button className="button button-coral catch-button" type="button" onClick={() => { setDemoState('waiting'); onToast('Bản xem thử: đã chọn bắt lỗi UNO.'); }}>Bắt lỗi UNO <Icon name="arrow" size={16} /></button>}
-          {demoState === 'finished' && <div className="result-card"><span className="result-spark"><Icon name="spark" size={26} /></span><p className="eyebrow">VÁN MẪU ĐÃ KẾT THÚC</p><h2>Khoa thắng ván này!</h2><p>Không có điểm tích lũy. Đây chỉ là kết quả minh họa.</p><button className="button button-primary button-small" type="button" onClick={onBack}>Về phòng chờ</button></div>}
+          {demoState === 'finished' && <div className="result-card"><p className="eyebrow">VÁN MẪU ĐÃ KẾT THÚC</p><h2><span className="winner-name">Khoa</span> thắng ván này!</h2><p>Không có điểm tích lũy. Đây chỉ là kết quả minh họa.</p><button className="button button-primary button-small" type="button" onClick={onBack}>Về phòng chờ</button></div>}
         </div>
         <section className="my-hand" aria-label="Bài của bạn">
-          <div className="hand-heading"><div><span className="avatar avatar-you hand-avatar">{nickname.slice(0, 1).toUpperCase()}</span><strong>{nickname}</strong><span className="your-hand-label">BÀI CỦA BẠN</span></div><span className="hand-count">{demoState === 'uno-window' ? 1 : 7} lá</span></div>
+          <div className="hand-heading"><div><PlayerAvatar id={0} className="avatar-you hand-avatar" /><strong>{nickname}</strong><span className="your-hand-label">BÀI CỦA BẠN</span></div><span className="hand-count">{demoState === 'uno-window' ? 1 : 7} lá</span></div>
           <div className="hand-cards">{demoCards.map((card) => {
             const justDrawn = demoState === 'drawn' && card.id === 'yellow-7';
             const canPlay = demoState === 'your-turn' && card.playable;
             const disabled = !canPlay && !justDrawn;
-            return <button data-card-id={card.id} key={card.id} className={`hand-card ${canPlay || justDrawn ? 'is-playable' : ''}${selectedCard === card.id || justDrawn ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`} type="button" aria-label={`${card.label}${canPlay ? ', có thể đánh' : ''}`} disabled={disabled} onClick={() => !disabled && onCard(card)}><CardArt face={card.face} color={card.color} /><span className="card-label">{card.label}</span></button>;
+            return <button data-card-id={card.id} key={card.id} className={`hand-card ${canPlay || justDrawn ? 'is-playable' : ''}${selectedCard === card.id || justDrawn ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`} type="button" aria-label={`${card.label}${canPlay ? ', có thể đánh' : ''}`} disabled={disabled} onClick={() => !disabled && onCard(card)}><CardArt face={card.face} color={card.color} /></button>;
           })}</div>
           <div className="hand-actions">{demoState === 'your-turn' && <><button className="button button-secondary" type="button" onClick={() => setDemoState('drawn')}>Rút bài</button><span className="turn-hint">Chọn lá sáng để đánh</span></>}{demoState === 'drawn' && <><button className="button button-primary" type="button" onClick={() => { setDemoState('waiting'); onToast('Bản xem thử: bạn đã đánh lá vừa rút.'); }}>Đánh lá vừa rút</button><button className="button button-quiet" type="button" onClick={() => setDemoState('waiting')}>Giữ lá</button></>}{demoState === 'uno-window' && <><button className="button button-coral" type="button" onClick={() => { setDemoState('waiting'); onToast('UNO! Bạn đã hô UNO trong bản xem thử.'); }}>UNO!</button><span className="turn-hint">Còn một lá trên tay</span></>}{demoState === 'waiting' && <span className="turn-hint"><span className="waiting-dots"><i /><i /><i /></span>Đang chờ tới lượt bạn</span>}{demoState === 'catch-uno' && <span className="turn-hint">Chọn “Bắt lỗi UNO” nếu muốn bắt người chơi quên hô</span>}{demoState === 'wild-four' && <span className="turn-hint">Bản xem thử: sau +4 chỉ được cộng +4, hoặc nhận 4 lá.</span>}{demoState === 'disconnected' && <span className="turn-hint">Các thao tác đang tạm dừng.</span>}{demoState === 'finished' && <button className="button button-secondary" type="button" onClick={onBack}>Về phòng chờ</button>}</div>
         </section>
@@ -631,7 +638,8 @@ function plainRect(rect: DOMRect): FlightRect { return { left: rect.left, top: r
 function centeredCardRect(anchor: DOMRect, width: number, height: number): FlightRect {
   return { left: anchor.left + anchor.width / 2 - width / 2, top: anchor.top + anchor.height / 2 - height / 2, width, height };
 }
-function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, onAction, onCommand, onLeave, onRules, onToast }: { snapshot: Extract<RoomSnapshot, { gameKey: 'uno' }>; effect: GameEffectEvent | null; playerId: string; nickname: string; connected: boolean; busy: boolean; onAction: (action: Record<string, unknown>) => Promise<{ ok: boolean; message?: string }>; onCommand: (event: string, body?: Record<string, unknown>) => Promise<{ ok: boolean; message?: string }>; onLeave: () => void; onRules: () => void; onToast: (message: string) => void }) {
+function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, onAction, onCommand, onLeave, onRules, onToast }: { snapshot: Extract<RoomSnapshot, { gameKey: 'uno' }>; effect: GameEffectEvent | null; playerId: string; nickname: string; connected: boolean; busy: boolean; onAction: (action: UnoActionIntent) => Promise<ApiReply>; onCommand: (command: RoomCommandInput) => Promise<ApiReply>; onLeave: () => void; onRules: () => void; onToast: (message: string) => void }) {
+  const kick = useKickConfirmation();
   const [wildCard, setWildCard] = useState<UnoCard | null>(null);
   const [reduceEffects, setReduceEffects] = useState(() => localStorage.getItem('banban-reduce-effects') === 'true');
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 760px)').matches);
@@ -889,10 +897,12 @@ function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, 
     if (selectedMobileCardId && (!game?.hand.some((card) => card.id === selectedMobileCardId) || !game.allowedActions.playableCardIds.includes(selectedMobileCardId) || game.currentPlayerId !== playerId || !connected || snapshot.paused)) setSelectedMobileCardId(null);
   }, [selectedMobileCardId, game, playerId, connected, snapshot.paused]);
   if (!game) return <div className="page subpage"><div className="room-notice">Đang đồng bộ trạng thái ván chơi…</div></div>;
-  const myTurn = !snapshot.paused && game.currentPlayerId === playerId && (game.phase === 'turn' || game.phase === 'drawn' || game.phase === 'penalty');
+  const myTurn = !snapshot.paused && (game.allowedActions.canDraw || game.allowedActions.canKeep || game.allowedActions.canAcceptPenalty || game.allowedActions.canChooseColor || game.allowedActions.playableCardIds.length > 0);
   const mustAccept = myTurn && game.allowedActions.canAcceptPenalty;
   const noPlayableCards = game.allowedActions.playableCardIds.length === 0;
-  const canCatch = game.unoWindow && game.unoWindow.playerId !== playerId && game.currentPlayerId === game.unoWindow.nextPlayerId;
+  const catchUnoPlayerId = game.allowedActions.catchUnoPlayerId;
+  const canCatch = catchUnoPlayerId !== null;
+  const canDeclareUno = game.allowedActions.canDeclareUno;
   const isHost = me?.isHost ?? false;
   const opponents = snapshot.players.filter((player) => !player.isYou);
   const positions = opponents.length === 1 ? ['pos-top'] : opponents.length === 2 ? ['pos-left', 'pos-right'] : opponents.length === 3 ? ['pos-left', 'pos-top', 'pos-right'] : opponents.length === 4 ? ['pos-left', 'pos-top-left', 'pos-top-right', 'pos-right'] : ['pos-left', 'pos-top-left', 'pos-top', 'pos-top-right', 'pos-right'];
@@ -907,7 +917,6 @@ function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, 
   const chooseCard = (card: UnoCard) => {
     if (!myTurn || busy || !connected) return;
     if (!game.allowedActions.playableCardIds.includes(card.id)) { onToast('Lá này không hợp lệ trong lượt hiện tại.'); return; }
-    if (game.phase === 'drawn' && card.id !== game.drawnCardId) { onToast('Sau khi rút, bạn chỉ có thể đánh lá vừa rút hoặc giữ lá.'); return; }
     if (isMobile) {
       if (selectedMobileCardId === card.id) playSelectedCard(card);
       else setSelectedMobileCardId(card.id);
@@ -932,20 +941,21 @@ function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, 
   const setting = <label className="motion-setting"><input type="checkbox" checked={reduceEffects} onChange={(event) => { setReduceEffects(event.target.checked); localStorage.setItem('banban-reduce-effects', String(event.target.checked)); }} /><span>Giảm hiệu ứng</span></label>;
   const effectLabel = visibleEffect?.actionType === 'play' && visibleEffect.card?.type === 'skip' ? 'BỎ LƯỢT' : visibleEffect?.actionType === 'play' && visibleEffect.card?.type === 'drawTwo' ? `+2 · ${visibleEffect.penaltyTotal ?? 2} LÁ` : visibleEffect?.actionType === 'play' && visibleEffect.card?.type === 'wildDrawFour' ? `+4 · ${visibleEffect.penaltyTotal ?? 4} LÁ` : visibleEffect?.actionType === 'acceptPenalty' ? `NHẬN ${visibleEffect.drawnCount ?? 0} LÁ` : visibleEffect?.actionType === 'declareUno' ? 'UNO!' : visibleEffect?.actionType === 'catchUno' ? 'BẮT LỖI UNO' : null;
   return <div className={`table-page live-table-page${reduceEffects ? ' reduce-effects' : ''}`}>
-    <div className="table-topline"><button className="back-link" type="button" onClick={onLeave}><Icon name="back" size={18} />Rời bàn</button><div className="table-room-meta"><span className="live-indicator" />PHÒNG {snapshot.code}<i /> <button type="button" onClick={onRules}>Luật chơi <Icon name="chevron" size={15} /></button></div><span className={`connection-state ${connected ? 'is-connected' : 'is-offline'}`}>{connected ? 'Đã kết nối' : 'Đang nối lại'}</span></div>
+    <ConfirmKickDialog target={kick.target} inGame={snapshot.phase === 'playing'} disabled={busy || !connected || !isHost} onCancel={kick.close} onConfirm={(targetPlayerId) => onCommand({ event: 'room:kick', targetPlayerId })} />
+    <div className="table-topline"><button className="back-link" type="button" onClick={onLeave}><Icon name="back" size={18} />Rời bàn</button><div className="table-room-meta table-room-title"><strong>{snapshot.code} · UNO</strong></div><span className={`connection-state ${connected ? 'is-connected' : 'is-offline'}`}>{connected ? 'Đã kết nối' : 'Đang nối lại'}</span></div>
     {(!connected || snapshot.paused) && <div className="connection-banner" role="status"><span className="connection-indicator" /><div><strong>{snapshot.paused ? 'Ván tạm dừng' : 'Đang kết nối lại'}</strong><small>{snapshot.paused ? `Chờ ${snapshot.players.filter((player) => !player.online).map((player) => player.nickname).join(', ') || 'người chơi'} kết nối lại. Hết 90 giây, ván bị hủy.` : 'Bàn tạm khóa cho tới khi kết nối lại.'}</small></div></div>}
     {snapshot.notice && <div className="room-notice" role="status"><Icon name="info" size={18} />{snapshot.notice}</div>}
     <div className="table-layout live-table-layout">
       <section className={`game-table live-game-table${game.phase === 'finished' ? ' state-finished' : ''}`} aria-label="Bàn UNO">
         <div className={`opponent-seats${visibleEffect?.actionType === 'start' ? ' deal-opponents' : ''}`}>{opponents.map((player, index) => <div data-player-id={player.id} className={`opponent-seat ${positions[index]}${visibleEffect?.actionType === 'start' ? ' deal-seat' : ''}${player.id === game.currentPlayerId ? ' is-current' : ''}${!player.online ? ' seat-offline' : ''}`} key={player.id} style={{ '--deal-index': index } as React.CSSProperties}>
-          <span className={`avatar avatar-${index % 4}`}>{player.nickname.slice(0, 1).toUpperCase()}</span><span className="opponent-meta"><strong>{player.nickname}</strong><small>{player.cardCount} lá · {player.online ? 'Đã kết nối' : 'Mất kết nối'}</small></span>{player.id === game.currentPlayerId && <span className="current-turn-badge">Đang lượt</span>}{visibleEffect?.card?.type === 'skip' && visibleEffect.targetId === player.id && <span className="skip-callout" aria-hidden="true">Bỏ lượt</span>}{isHost && <button className="kick-opponent" type="button" aria-label={`Mời ${player.nickname} ra khỏi phòng`} onClick={() => { const warning = snapshot.phase === 'playing' ? `Mời ${player.nickname} ra sẽ hủy ván hiện tại. Tiếp tục?` : `Mời ${player.nickname} ra khỏi phòng?`; if (window.confirm(warning)) void onCommand('room:kick', { targetPlayerId: player.id }); }}>×</button>}
+          <PlayerAvatar id={player.avatarId} className={`avatar-${index % 4}`} /><span className="opponent-meta"><strong>{player.nickname}</strong><small>{player.cardCount} lá · {player.online ? 'Đã kết nối' : 'Mất kết nối'}</small></span>{player.id === game.currentPlayerId && <span className="current-turn-badge">Đang lượt</span>}{visibleEffect?.card?.type === 'skip' && visibleEffect.targetId === player.id && <span className="skip-callout" aria-hidden="true">Bỏ lượt</span>}{isHost && <button className="kick-opponent" type="button" aria-label={`Mời ${player.nickname} ra khỏi phòng`} onClick={() => kick.request(player.id, player.nickname)}>×</button>}
         </div>)}</div>
         <div className={`felt-table table-color-${game.currentColor ?? "wild"}`}>
           <span ref={feltSurfaceRef} className="felt-surface-art" aria-hidden="true"><span className="felt-ring ring-one" /><span className="felt-ring ring-two" /></span>
           <div className="felt-scene-impact">
           <div className="turn-banner" tabIndex={-1}><span className={`turn-dot${!connected || snapshot.paused ? ' offline' : ''}`} />{game.phase === 'finished' ? 'Ván đã kết thúc' : snapshot.paused ? 'Chờ người chơi kết nối lại' : game.phase === 'chooseColor' ? `${startLabel} chọn màu mở đầu` : myTurn ? 'Tới lượt bạn' : game.phase === 'penalty' ? `${startLabel} đang xử lý phạt` : `Đang tới lượt ${startLabel}`}</div>
           <div className="pile-row">
-            <div className="pile-column"><span className="pile-caption">CHỒNG RÚT</span><button className={`card-back${myTurn && game.allowedActions.canDraw && noPlayableCards ? " draw-attention" : ""}`} type="button" aria-label="Rút một lá" disabled={!myTurn || game.phase !== 'turn' || busy || !connected} onClick={() => void onAction({ type: 'draw' })}><span ref={drawVisualRef} className="card-back-visual" aria-hidden="true"><span className="card-back-oval"><b>B</b></span></span></button><span className="pile-count">{game.drawCount} lá</span></div>
+            <div className="pile-column"><span className="pile-caption">CHỒNG RÚT</span><button className={`card-back${myTurn && game.allowedActions.canDraw && noPlayableCards ? " draw-attention" : ""}`} type="button" aria-label="Rút một lá" disabled={!game.allowedActions.canDraw || busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'draw' })}><span ref={drawVisualRef} className="card-back-visual" aria-hidden="true"><span className="card-back-oval"><b>B</b></span></span></button><span className="pile-count">{game.drawCount} lá</span></div>
             <span className="pile-arrow" aria-label={game.direction === 1 ? 'Chiều kim đồng hồ' : 'Ngược chiều kim đồng hồ'}>{game.direction === 1 ? '↻' : '↺'}</span>
             <div className="pile-column"><span className="pile-caption">LÁ BỎ</span><div ref={discardRef} className="played-card-shell" style={{ visibility: flight && visibleEffect && flight.key === visibleEffect.eventId ? 'hidden' : 'visible' }}><>{game.topCard ? <CardArt face={liveCardFace(game.topCard)} color={game.topCard.color} /> : <span className="empty-discard">Chờ lá đầu</span>}</></div><span className="pile-count">Màu hiện tại: <b className={`current-color${game.currentColor ? ` color-text-${game.currentColor}` : ''}`}>{game.currentColor ? colorNames[game.currentColor] : 'Chưa mở bàn'}</b></span></div>
           </div>
@@ -955,31 +965,31 @@ function LiveTablePage({ snapshot, effect, playerId, nickname, connected, busy, 
             {effectLabel && <span key={visibleEffect?.eventId} className="tray-event">{effectLabel}{(visibleEffect?.drawnCount ?? 0) > 1 ? ` · ${visibleEffect!.drawnCount} lá` : ''}</span>}
             {game.pendingPenalty && <div className="tray-summary">Tổng phạt <b>{game.pendingPenalty.total} lá</b> · {game.pendingPenalty.lastType === 'drawTwo' ? 'Cộng +2 hoặc +4' : 'Chỉ cộng +4'}</div>}
             <div className="tray-actions">
-              {game.phase === 'drawn' && myTurn && <><span>Bạn vừa rút một lá · Có thể đánh hoặc giữ</span><button className="button button-secondary button-small" disabled={busy || !connected} onClick={() => void onAction({ type: 'keep' })}>Giữ lá</button></>}
-              {mustAccept && <><span>{noPlayableCards ? 'Không có lá cộng phù hợp.' : 'Cộng tiếp hoặc nhận phạt'} Nhận {game.pendingPenalty!.total} lá</span><button className="button button-primary button-small" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'acceptPenalty' })}>Nhận bài</button></>}
-              {canCatch && <><span>Có người quên hô UNO.</span><button className="button button-coral button-small" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'catchUno', targetPlayerId: game.unoWindow!.playerId })}>Bắt UNO</button></>}
-              {game.unoWindow?.playerId === playerId && <><span>Còn một lá trên tay. Hãy hô UNO.</span><button className="button button-coral button-small" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'declareUno' })}>UNO!</button></>}
-              {!mustAccept && !canCatch && game.unoWindow?.playerId !== playerId && game.phase !== 'drawn' && <span className="tray-idle">{myTurn ? 'Chọn một lá hoặc rút bài' : connected ? `Đang chờ lượt ${startLabel}` : 'Đang kết nối lại…'}</span>}
+              {game.phase === 'drawn' && myTurn && <><span>Bạn vừa rút một lá · Có thể đánh hoặc giữ</span><button className="button button-secondary button-small" disabled={!game.allowedActions.canKeep || busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'keep' })}>Giữ lá</button></>}
+              {mustAccept && <><span>{noPlayableCards ? 'Không có lá cộng phù hợp.' : 'Cộng tiếp hoặc nhận phạt'} Nhận {game.pendingPenalty!.total} lá</span><button className="button button-primary button-small" disabled={!game.allowedActions.canAcceptPenalty || busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'acceptPenalty' })}>Nhận bài</button></>}
+              {canCatch && <><span>Có người quên hô UNO.</span><button className="button button-coral button-small" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'catchUno', targetPlayerId: catchUnoPlayerId })}>Bắt UNO</button></>}
+              {canDeclareUno && <><span>Còn một lá trên tay. Hãy hô UNO.</span><button className="button button-coral button-small" disabled={busy || !connected || snapshot.paused || !game.allowedActions.canDeclareUno} onClick={() => void onAction({ type: 'declareUno' })}>UNO!</button></>}
+              {!mustAccept && !canCatch && !canDeclareUno && game.phase !== 'drawn' && <span className="tray-idle">{myTurn ? 'Chọn một lá hoặc rút bài' : connected ? `Đang chờ lượt ${startLabel}` : 'Đang kết nối lại…'}</span>}
             </div>
           </div>
-          {game.phase === 'drawn' && myTurn && <div className="action-status-card drawn-card-prompt"><span className="action-status-icon">+1</span><div><strong>Bạn vừa rút một lá</strong><small>Đánh lá vừa rút nếu muốn, hoặc giữ để kết thúc lượt.</small></div><button className="button button-secondary button-small" type="button" disabled={busy} onClick={() => void onAction({ type: 'keep' })}>Giữ lá</button></div>}
+          {game.phase === 'drawn' && myTurn && <div className="action-status-card drawn-card-prompt"><span className="action-status-icon">+1</span><div><strong>Bạn vừa rút một lá</strong><small>Đánh lá vừa rút nếu muốn, hoặc giữ để kết thúc lượt.</small></div><button className="button button-secondary button-small" type="button" disabled={!game.allowedActions.canKeep || busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'keep' })}>Giữ lá</button></div>}
           {game.pendingPenalty && <div className="penalty-summary" role="status">Tổng phạt: <b>{game.pendingPenalty.total} lá</b> · {game.pendingPenalty.pendingWinnerId ? 'Lá cuối: không cộng tiếp' : game.pendingPenalty.lastType === 'drawTwo' ? 'Được cộng +2 hoặc +4' : 'Chỉ được cộng +4'}</div>}
-          {mustAccept && <div className="action-status-card penalty-card"><span className="action-status-icon">+{game.pendingPenalty!.total}</span><div><strong>{noPlayableCards ? 'Bạn cần nhận phạt' : 'Cộng tiếp hoặc nhận phạt'}</strong><small>{game.pendingPenalty!.pendingWinnerId ? 'Nhận đủ bài để kết thúc ván.' : noPlayableCards ? 'Không có lá cộng phù hợp.' : 'Chọn lá sáng hoặc nhận toàn bộ khoản phạt.'}</small></div><button className="button button-primary button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'acceptPenalty' })}>Nhận {game.pendingPenalty!.total} lá</button></div>}
-          {canCatch && <div className="uno-catch-prompt"><span><b>UNO?</b> Có người quên hô UNO.</span><button className="button button-coral button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'catchUno', targetPlayerId: game.unoWindow!.playerId })}>Bắt lỗi UNO</button></div>}
-          {game.unoWindow?.playerId === playerId && <div className="uno-catch-prompt"><span><b>Còn một lá!</b> Hãy hô UNO trước khi lượt kế tiếp bắt đầu.</span><button className="button button-coral button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'declareUno' })}>UNO!</button></div>}
-          {game.phase === 'finished' && <div className={`result-card${visibleEffect?.winnerId ? ' effect-finish' : ''}`}><span className="result-spark"><Icon name="spark" size={26} /></span><p className="eyebrow">VÁN ĐÃ KẾT THÚC</p><h2>{game.winnerId ? `${game.players.find((player) => player.id === game.winnerId)?.nickname ?? 'Người chơi'} thắng ván này!` : 'Ván kết thúc vì không còn đủ bài để rút.'}</h2><p>{game.finishReason === 'stalemate' ? 'Không xác định người thắng theo trạng thái bài còn lại.' : 'Chơi lại trong cùng phòng khi mọi người đã sẵn sàng.'}</p>{me?.isHost ? <button className="button button-primary button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onCommand('room:rematch')}>Chơi lại</button> : <span className="turn-hint">Chờ chủ phòng chọn chơi lại.</span>}</div>}
+          {mustAccept && <div className="action-status-card penalty-card"><span className="action-status-icon">+{game.pendingPenalty!.total}</span><div><strong>{noPlayableCards ? 'Bạn cần nhận phạt' : 'Cộng tiếp hoặc nhận phạt'}</strong><small>{game.pendingPenalty!.pendingWinnerId ? 'Nhận đủ bài để kết thúc ván.' : noPlayableCards ? 'Không có lá cộng phù hợp.' : 'Chọn lá sáng hoặc nhận toàn bộ khoản phạt.'}</small></div><button className="button button-primary button-small" type="button" disabled={!game.allowedActions.canAcceptPenalty || busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'acceptPenalty' })}>Nhận {game.pendingPenalty!.total} lá</button></div>}
+          {canCatch && <div className="uno-catch-prompt"><span><b>UNO?</b> Có người quên hô UNO.</span><button className="button button-coral button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'catchUno', targetPlayerId: catchUnoPlayerId })}>Bắt lỗi UNO</button></div>}
+          {canDeclareUno && <div className="uno-catch-prompt"><span><b>Còn một lá!</b> Hãy hô UNO trước khi lượt kế tiếp bắt đầu.</span><button className="button button-coral button-small" type="button" disabled={busy || !connected || snapshot.paused || !game.allowedActions.canDeclareUno} onClick={() => void onAction({ type: 'declareUno' })}>UNO!</button></div>}
+          {game.phase === 'finished' && <div className={`result-card${visibleEffect?.winnerId ? ' effect-finish' : ''}`}><p className="eyebrow">VÁN ĐÃ KẾT THÚC</p><h2>{game.winnerId ? <><span className="winner-name">{game.players.find((player) => player.id === game.winnerId)?.nickname ?? 'Người chơi'}</span> thắng ván này!</> : 'Không còn đủ bài để rút.'}</h2><p>{game.finishReason === 'stalemate' ? 'Không xác định người thắng theo trạng thái bài còn lại.' : 'Chơi lại trong cùng phòng khi mọi người đã sẵn sàng.'}</p>{me?.isHost ? <button className="button button-primary button-small" type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onCommand({ event: 'room:rematch' })}>Chơi lại</button> : <span className="turn-hint">Chờ chủ phòng chọn chơi lại.</span>}</div>}
         </div>
         <section className={`my-hand${visibleEffect?.actionType === 'start' ? ' deal-hand' : ''}`} aria-label="Bài của bạn">
-          <div className="hand-heading" data-player-id={playerId}><div><span className="avatar avatar-you hand-avatar">{nickname.slice(0, 1).toUpperCase()}</span><strong>{nickname}</strong><span className="your-hand-label">BÀI CỦA BẠN</span></div><span className="hand-count">{game.hand.length} lá</span></div>
+          <div className="hand-heading" data-player-id={playerId}><div><PlayerAvatar id={me?.avatarId ?? 0} className="avatar-you hand-avatar" /><strong>{nickname}</strong><span className="your-hand-label">BÀI CỦA BẠN</span></div><span className="hand-count">{game.hand.length} lá</span></div>
           <div ref={handCardsRef} className="hand-cards" onScroll={() => { if (isMobile) { setSelectedMobileCardId(null); resetHandBaseline(); } }}>{game.hand.map((card) => {
             const isDrawn = game.drawnCardId === card.id;
             const interactable = myTurn && game.allowedActions.playableCardIds.includes(card.id) && !busy && connected;
             const highlight = interactable;
             const selected = selectedMobileCardId === card.id && interactable;
             const raised = selected || (!isMobile && isDrawn);
-            return <button data-card-id={card.id} key={card.id} className={`hand-card${highlight ? ' is-playable' : ''}${raised ? ' is-selected' : ''}${isDrawn ? ' is-drawn-card' : ''}${isDrawn && visibleEffect?.actionType === 'draw' && visibleEffect.actorId === playerId ? ' card-drawn-in' : ''}${!interactable ? ' is-disabled' : ''}`} type="button" aria-pressed={isMobile ? selected : undefined} aria-label={`Đánh ${liveCardName(card)}${highlight ? ', có thể đánh' : ', chưa thể đánh'}${isDrawn ? ', vừa rút' : ''}${isMobile && selected ? ', đã chọn, chạm lần nữa để đánh' : ''}`} disabled={!interactable} onClick={() => chooseCard(card)}><CardArt face={liveCardFace(card)} color={card.color} /><span className="card-label">{liveCardName(card)}</span></button>;
+            return <button data-card-id={card.id} key={card.id} className={`hand-card${highlight ? ' is-playable' : ''}${raised ? ' is-selected' : ''}${isDrawn ? ' is-drawn-card' : ''}${isDrawn && visibleEffect?.actionType === 'draw' && visibleEffect.actorId === playerId ? ' card-drawn-in' : ''}${!interactable ? ' is-disabled' : ''}`} type="button" aria-pressed={isMobile ? selected : undefined} aria-label={`Đánh ${liveCardName(card)}${highlight ? ', có thể đánh' : ', chưa thể đánh'}${isDrawn ? ', vừa rút' : ''}${isMobile && selected ? ', đã chọn, chạm lần nữa để đánh' : ''}`} disabled={!interactable} onClick={() => chooseCard(card)}><CardArt face={liveCardFace(card)} color={card.color} /></button>;
           })}</div>
-          <div className="hand-actions">{game.phase === 'turn' && myTurn && <><span className="turn-hint">{selectedMobileCardId ? `Đã chọn ${liveCardName(game.hand.find((card) => card.id === selectedMobileCardId)!)} · chạm lần nữa để đánh` : noPlayableCards ? 'Không có lá phù hợp — hãy rút bài' : isMobile ? 'Chạm một lá để chọn' : 'Chọn lá phù hợp để đánh'}</span><button className={`button button-secondary${noPlayableCards ? " draw-attention" : ""}`} type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'draw' })}>Rút bài</button></>}{game.phase === 'drawn' && myTurn && <span className="turn-hint">{selectedMobileCardId ? 'Chạm lại lá đang nâng để đánh' : 'Đánh lá vừa rút hoặc giữ lượt'}</span>}{game.phase === 'penalty' && myTurn && <span className="turn-hint">{selectedMobileCardId ? 'Chạm lại lá đang nâng để đánh' : 'Chạm lá cộng phù hợp để chọn'}</span>}{!myTurn && game.phase !== 'finished' && <span className="turn-hint"><span className="waiting-dots"><i /><i /><i /></span>{connected ? 'Đang chờ tới lượt bạn' : 'Đang kết nối lại…'}</span>}{game.phase === 'finished' && <button className="button button-quiet" type="button" onClick={onLeave}>Rời phòng</button>}</div>
+          <div className="hand-actions">{game.phase === 'turn' && myTurn && <>{(!isMobile || noPlayableCards) && <span className="turn-hint">{noPlayableCards ? 'Không có lá phù hợp — hãy rút bài' : 'Chọn lá phù hợp để đánh'}</span>}<button className={`button button-secondary${noPlayableCards ? " draw-attention" : ""}`} type="button" disabled={busy || !connected || snapshot.paused} onClick={() => void onAction({ type: 'draw' })}>Rút bài</button></>}{game.phase === 'drawn' && myTurn && <span className="turn-hint">Đánh lá vừa rút hoặc giữ lượt</span>}{game.phase === 'penalty' && myTurn && <span className="turn-hint">Cộng tiếp hoặc nhận phạt</span>}{!myTurn && game.phase !== 'finished' && <span className="turn-hint"><span className="waiting-dots"><i /><i /><i /></span>{connected ? 'Đang chờ tới lượt bạn' : 'Đang kết nối lại…'}</span>}{game.phase === 'finished' && <button className="button button-quiet" type="button" onClick={onLeave}>Rời phòng</button>}</div>
         </section>
       </section>
       {flight && <div ref={flightRef} key={flight.key} className="flying-played-card" aria-hidden="true" style={{ left: flight.from.left, top: flight.from.top, width: flight.from.width, height: flight.from.height }}><CardArt face={flight.face} color={flight.color} /></div>}

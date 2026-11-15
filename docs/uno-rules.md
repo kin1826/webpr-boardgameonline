@@ -1,10 +1,10 @@
-# Luật UNO tùy chỉnh Bàn Bạn — BB-UNO-1
+# Luật UNO tùy chỉnh Hội Quậy — BB-UNO-1
 
 Trạng thái: BB-UNO-1 đã được triển khai trong engine và UI, nhưng cần Terra nghiệm thu độc lập. Test, bằng chứng và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md).
 
 ## Nguồn và phạm vi
 
-Bộ 108 lá và nền tảng cách chơi tham khảo [Mattel W2085-0629](https://service.mattel.com/instruction_sheets/W2085-Eng.pdf), [trang hỗ trợ W2085](https://service.mattel.com/us/productDetail.aspx?prodno=W2085&siteid=27). Cộng dồn, +4 tự do, Reverse hai người và cách kết thúc dưới đây là **luật tùy chỉnh Bàn Bạn do người dùng chốt**, không phải quy định Mattel. Không tuyên bố đây là UNO Classic nguyên bản. Hồ sơ Classic ban đầu lưu tại [uno-classic-reference.md](./uno-classic-reference.md) để đối chiếu lịch sử; nếu khác nhau, file này được ưu tiên. Không cần thêm bộ chọn nhiều chế độ luật.
+Bộ 108 lá và nền tảng cách chơi tham khảo [Mattel W2085-0629](https://service.mattel.com/instruction_sheets/W2085-Eng.pdf), [trang hỗ trợ W2085](https://service.mattel.com/us/productDetail.aspx?prodno=W2085&siteid=27). Cộng dồn, +4 tự do, Reverse hai người và cách kết thúc dưới đây là **luật tùy chỉnh Hội Quậy do người dùng chốt**, không phải quy định Mattel. Không tuyên bố đây là UNO Classic nguyên bản. Hồ sơ Classic ban đầu lưu tại [uno-classic-reference.md](./uno-classic-reference.md) để đối chiếu lịch sử; nếu khác nhau, file này được ưu tiên. Không cần thêm bộ chọn nhiều chế độ luật.
 
 ## R01 — Bộ bài, người chơi, setup
 

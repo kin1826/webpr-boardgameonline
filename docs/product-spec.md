@@ -1,10 +1,10 @@
 # Phạm vi sản phẩm MVP
 
-Trạng thái: UNO theo [BB-UNO-1](./uno-rules.md) đã triển khai; Nối từ NT-VI-1 vừa được thêm và đang chờ nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md) và [báo cáo Nối từ](./reports/noitu/summary.md).
+Trạng thái: UNO [BB-UNO-1], Nối từ [NT-VI-1] và Caro [HQ-CARO-1] đã có trong code; Caro đúng 2 người, hai game còn lại 2–6 người. Nối từ và Caro đang chờ nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md), [báo cáo Nối từ](./reports/noitu/summary.md) và [báo cáo Caro](./reports/caro/summary.md).
 
 ## Mục tiêu
 
-Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi UNO hoặc Nối từ realtime. Mỗi phòng chỉ có một game, tối đa sáu người; trạng thái do server kiểm tra. Không có điểm tích lũy qua nhiều ván.
+Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi UNO, Nối từ hoặc Caro realtime. Mỗi phòng chỉ có một game; Caro đúng hai người, UNO/Nối từ tối đa sáu. Server quyết định nước đi và kết quả. Không có điểm tích lũy qua nhiều ván.
 
 ## Luồng và điều kiện chấp nhận
 
@@ -16,6 +16,7 @@ Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, 
 | Phòng chờ | Hiện ghế, tên, kết nối, sẵn sàng, chủ phòng | 2–6 người; tất cả online, mọi khách sẵn sàng; chủ phòng bấm bắt đầu |
 | Ván chơi | Tay bài riêng, lượt, rút, đánh, màu, hô UNO và thao tác luật cần thiết | Server xác thực; thông báo lý do từ chối; không lộ thông tin riêng |
 | Nối từ | Từ mồi, tiếng khóa, nhập realtime, validate/dictionary vote, lượt và lịch sử | 2–6 người; server chốt từ/phiếu/deadline; từ chưa biết chỉ có hiệu lực trong ván khi nhóm duyệt |
+| Caro | Bàn 15×15, chọn ô, lượt X/O và kết quả | Đúng 2 người; server xác thực nước, deadline 30 giây và quy tắc đúng mục tiêu 4/5/6 còn đầu mở theo HQ-CARO-1 |
 | Kết thúc | Hiện người thắng hoặc lý do hủy ván | Có nút trở về phòng chờ để chơi lại; reset sẵn sàng, giữ phòng và ghế hợp lệ |
 | Nối lại | Reload hoặc mạng gián đoạn ngắn | Giữ đúng ghế, tay bài và ván; socket cũ không điều khiển được |
 
@@ -44,7 +45,7 @@ Các mốc thời gian trên là lựa chọn MVP, có thể điều chỉnh có
 
 ## Ngoài phạm vi
 
-Game khác ngoài UNO và Nối từ, bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, điểm nhiều ván, lịch sử lâu dài, đồng bộ nhiều backend.
+Game khác ngoài UNO, Nối từ và Caro, bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, điểm nhiều ván, lịch sử lâu dài, đồng bộ nhiều backend.
 
 ## Tiêu chí nghiệm thu cuối
 
@@ -56,4 +57,8 @@ Game khác ngoài UNO và Nối từ, bot, tự động ghép trận, khán gi�
 
 ## Bổ sung phòng và tái sử dụng
 
-Áp dụng [Phòng chơi và phần dùng lại](./rooms-and-reuse.md): chỉ join bằng mã, public/private, danh sách công khai để tìm mã, quyền kick và điều kiện ready của khách. Link mời chỉ điền mã vào form, không tự join. Tài liệu này thay các mô tả link mời và yêu cầu host tự ready trước đây.
+Áp dụng [Phòng chơi và phần dùng lại](./rooms-and-reuse.md): chỉ join bằng mã, public/private, danh sách công khai để tham gia trực tiếp bằng mã của phòng, quyền kick và điều kiện ready của khách. Link mời chỉ điền mã vào form, không tự join. Tài liệu này thay các mô tả link mời và yêu cầu host tự ready trước đây.
+
+## HQ-CARO-1
+
+Caro dùng bàn 15×15 và đúng 2 người. Thắng khi nối đúng mục tiêu 4/5/6 theo bốn hướng, ít nhất một đầu trống; dãy vượt mục tiêu không thắng. Mỗi lượt 30 giây do server quyết định; timeout hoặc chịu thua kết thúc ván, mất kết nối tạm dừng lượt theo grace period phòng. Xem [luật và nguồn](./caro-rules.md) cùng [báo cáo triển khai](./reports/caro/summary.md).

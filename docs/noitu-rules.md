@@ -1,6 +1,6 @@
 # Luật Nối từ NT-VI-1
 
-Trạng thái: luật MVP được triển khai trong `packages/noitu`; chờ Terra nghiệm thu độc lập. Đây là lựa chọn luật sản phẩm của Bàn Bạn, không tuyên bố là một bộ luật Nối từ tiêu chuẩn.
+Trạng thái: luật MVP được triển khai trong `packages/noitu`; chờ Terra nghiệm thu độc lập. Đây là lựa chọn luật sản phẩm của Hội Quậy, không tuyên bố là một bộ luật Nối từ tiêu chuẩn.
 
 ## Mục tiêu và người chơi
 

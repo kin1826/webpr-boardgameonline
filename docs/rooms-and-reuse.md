@@ -1,14 +1,14 @@
 # Phòng chơi và phần dùng lại giữa các game
 
-Trạng thái: room/session dùng chung cho UNO và Nối từ; Nối từ đang chờ Terra nghiệm thu. Kết quả và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md) và [báo cáo Nối từ](./reports/noitu/summary.md).
+Trạng thái: room/session dùng chung cho UNO, Nối từ và Caro; Nối từ/Caro đang chờ Terra nghiệm thu độc lập. Kết quả và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md), [báo cáo Nối từ](./reports/noitu/summary.md) và [báo cáo Caro](./reports/caro/summary.md).
 
 ## Vào phòng bằng mã, public và private
 
 - Mọi phòng có mã 6 ký tự do server cấp. Người dùng nhập biệt danh và mã để tham gia; không xây luồng join qua link mời.
 - Khi tạo phòng, chủ phòng chọn “Công khai” hoặc “Riêng tư”; mặc định riêng tư.
-- Cách hiểu public trong kế hoạch: có danh sách phòng công khai để tìm và sao chép mã, sau đó nhập mã để vào. Không có nút tự ghép trận hoặc vào thẳng từ danh sách. Đây là đề xuất sản phẩm để public và private có khác biệt thực tế.
+- Danh sách công khai cho bấm vào hàng phòng để tham gia trực tiếp qua cùng API join bằng mã; không tự ghép trận. Link mời chỉ điền sẵn mã, không tự join.
 - Private không xuất hiện trong danh sách. Ai biết mã vẫn có thể vào nếu phòng còn nhận người; không thêm mật khẩu hay duyệt đơn xin vào.
-- Danh sách công khai chỉ trả game, mã phòng, biệt danh chủ phòng, số người/tối đa và trạng thái. Không trả danh sách bài, token hoặc mã phòng private. Có giới hạn số kết quả/tần suất; phòng hết hạn phải biến mất.
+- Danh sách công khai chỉ trả game, mã phòng, biệt danh/avatar chủ phòng, số người/tối đa và trạng thái. Không trả danh sách bài, token hoặc mã phòng private. Có giới hạn số kết quả/tần suất; phòng hết hạn phải biến mất.
 - Chỉ phòng đang chờ mới xuất hiện trong danh sách công khai. Phòng đang chơi không nhận người mới; nối lại ghế cũ vẫn được phép.
 - Chủ phòng đổi public/private khi đang chờ. Server cập nhật danh sách ngay; thao tác này không đổi mã hoặc đẩy người đang ở phòng ra.
 
@@ -20,7 +20,7 @@ Trạng thái: room/session dùng chung cho UNO và Nối từ; Nối từ đang
 
 ## Sẵn sàng và bắt đầu
 
-- Mỗi game (UNO/Nối từ) bắt đầu được với 2, 3, 4, 5 hoặc 6 người thật, bỏ qua ghế trống.
+- UNO/Nối từ bắt đầu với 2–6 người thật, bỏ qua ghế trống. Caro chỉ bắt đầu khi có đúng 2 người.
 - Khách có nút “Sẵn sàng” / “Hủy sẵn sàng”. Chủ phòng có nút “Bắt đầu”; bấm bắt đầu chính là xác nhận của chủ phòng, không cần thêm lần bấm sẵn sàng riêng cho chủ phòng.
 - Server chỉ chấp nhận start khi đúng chủ phòng, game của phòng sẵn sàng, phòng đang chờ, có ít nhất 2 người, tất cả đang kết nối và tất cả khách sẵn sàng.
 - Khi thiếu điều kiện, nút start bị vô hiệu hóa kèm lý do cụ thể như “Cần thêm 1 người”, “Chờ An sẵn sàng”, “Có người đang mất kết nối” hoặc “Từ điển thử nghiệm chưa sẵn sàng”. Khách không thấy nút bắt đầu.
@@ -49,6 +49,7 @@ Tái sử dụng hệ token, typography, nút/input/dialog/toast và các màn s
 | Khung phiên chơi | Thanh phòng, trạng thái mạng, luật chơi, vùng render game và kết quả |
 | Riêng UNO | Lá bài, vị trí đối thủ, tay bài, lượt, chọn màu, cộng/nhận phạt và hô UNO |
 | Riêng Nối từ | Prefix/suffix, draft, dictionary check, proposal vote, deadline, lịch sử và người bị loại |
+| Riêng Caro | Bàn 15×15, X/O, nước cuối, dãy thắng, deadline và capabilities server |
 
 Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong hero đã bị người dùng bỏ. Tạo phòng nằm sau bước chọn UNO. Phần danh sách công khai đặt dưới khu chọn game hoặc trong trang UNO để không đẩy game xuống khỏi màn đầu.
 
@@ -56,9 +57,9 @@ Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong her
 
 - Giữ React + TypeScript + Vite và CSS tokens; backend Node + TypeScript + Socket.IO, trạng thái RAM trong một process.
 - Room service sở hữu thành viên, host, visibility, ready, start/leave/kick, vòng đời và danh sách công khai. Session service sở hữu token và reconnect. Hai phần không biết lá bài hoặc luật UNO.
-- Room lưu `gameKey`, giới hạn min/max từ catalog server và state riêng game. Điều kiện ready/start chung nằm ở room service; hiện UNO và Nối từ đều có min=2/max=6.
-- Module UNO và Nối từ lần lượt sở hữu state, validate hành động, transition, kết quả và projection. Không đẩy engine hoặc raw state kín vào bundle frontend.
-- Room service rẽ nhánh theo hai game hiện có nhưng không tạo plugin framework hay engine luật tổng quát.
+- Room lưu `gameKey`, giới hạn min/max từ catalog server và state riêng game. Điều kiện ready/start chung nằm ở room service; UNO/Nối từ min=2/max=6, Caro min=max=2.
+- Module UNO, Nối từ và Caro lần lượt sở hữu state, validate hành động, transition, kết quả và projection. Không đẩy engine hoặc raw state kín vào bundle frontend.
+- Room service rẽ nhánh tường minh theo từng game hiện có nhưng không tạo plugin framework hay engine luật tổng quát.
 - Khách chỉ gửi ý định; server kiểm tra quyền, phase, payload, action ID và revision. Discovery public cũng do server lọc, không tải toàn bộ phòng rồi ẩn private bằng CSS.
 
 ## Thứ tự làm và kiểm chứng
@@ -69,4 +70,8 @@ Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong her
 4. Thử đủ 2–6 người, khách chưa ready, host chuyển quyền, join/kick đua với start, kick trong ván, public đổi private, private không lọt qua danh sách, socket đã bị kick không resume được.
 5. UNO và Nối từ có unit/service tests; integration Socket.IO kiểm thử bằng hai client độc lập. Kiểm tra browser/điện thoại LAN thật cho Nối từ còn phải làm độc lập; xem báo cáo kiểm chứng.
 
-Không thêm game mới trong vòng này. Public là danh sách phòng tự chọn, không có matchmaking. Phòng và token mất khi backend khởi động lại.
+Public là danh sách phòng tự chọn, không có matchmaking. Phòng và token mất khi backend khởi động lại.
+
+## Caro HQ-CARO-1
+
+Caro đã tích hợp vào catalog và room/session dùng chung. Room có min/max đều 2; người thứ ba bị từ chối bởi giới hạn server. Engine, action `caro:action`, timer, pause/resume, snapshot và UI riêng được ghi tại [luật](./caro-rules.md), [báo cáo code](./reports/caro/summary.md) và [QA checklist](./reports/caro/summary.md). Đây không thay giới hạn 2–6 của UNO/Nối từ.
