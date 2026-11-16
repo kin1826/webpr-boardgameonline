@@ -58,6 +58,44 @@ afterEach(async () => {
 });
 
 describe('Socket.IO với hai client riêng', () => {
+  it('tạo phòng với settings do server định nghĩa và host cập nhật settings qua room:settings', async () => {
+    active = createRealtimeServer({ serveWeb: false, roomService: new RoomService() });
+    await new Promise<void>(resolve => active!.http.listen(0, '127.0.0.1', resolve));
+    const address = active.http.address();
+    if (!address || typeof address === 'string') throw new Error('Không lấy được cổng test.');
+    const url = 'http://127.0.0.1:' + address.port;
+    const host = connect(url, { forceNew: true, transports: ['websocket'], reconnection: false });
+    const guest = connect(url, { forceNew: true, transports: ['websocket'], reconnection: false });
+    clients.push(host, guest);
+    await Promise.all([host, guest].map(socket => new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); })));
+
+    const created = await emitAck(host, 'room:create', {
+      actionId: crypto.randomUUID(), nickname: 'Chủ cấu hình', visibility: 'public', gameKey: 'uno',
+      settings: { gameKey: 'uno', turnSeconds: 45, targetScore: 100, stacking: false },
+    });
+    expect(created.ok).toBe(true);
+    expect(created.snapshot).toMatchObject({ settings: { gameKey: 'uno', turnSeconds: 45, targetScore: 100, stacking: false }, match: null });
+    const credentials = created.credentials!;
+    const joined = await emitAck(guest, 'room:join', { actionId: crypto.randomUUID(), code: credentials.roomCode, nickname: 'Khách cấu hình' });
+    expect(joined.ok).toBe(true);
+
+    const denied = await emitAck(guest, 'room:settings', action(credentials.roomId, joined.snapshot!.revision, {
+      settings: { gameKey: 'uno', turnSeconds: 60, targetScore: 200, stacking: true },
+    }));
+    expect(denied).toMatchObject({ ok: false, code: 'HOST_ONLY' });
+    const changed = await emitAck(host, 'room:settings', action(credentials.roomId, joined.snapshot!.revision, {
+      settings: { gameKey: 'uno', turnSeconds: 60, targetScore: 200, stacking: true },
+    }));
+    expect(changed.ok).toBe(true);
+    expect(changed.snapshot).toMatchObject({ settings: { turnSeconds: 60, targetScore: 200, stacking: true }, players: [{ ready: false }, { ready: false }] });
+    expect(active.rooms.publicRooms()[0]).toMatchObject({ targetScore: 200, turnSeconds: 60, settings: { stacking: true } });
+
+    const invalid = await emitAck(host, 'room:settings', action(credentials.roomId, changed.snapshot!.revision, {
+      settings: { gameKey: 'uno', turnSeconds: 17, targetScore: 200, stacking: true },
+    }));
+    expect(invalid.ok).toBe(false);
+  });
+
   it('tạo → mã tham gia → sẵn sàng → bắt đầu, chỉ phát tay riêng và chống action lặp', async () => {
     active = createRealtimeServer({ serveWeb: false, roomService: new FixtureRoomService() });
     await new Promise<void>(resolve => active!.http.listen(0, '127.0.0.1', resolve));
@@ -196,7 +234,7 @@ it('hai socket xác thực màu, cộng/nhận phạt, reload host, rematch và 
   const url='http://127.0.0.1:'+addr.port;
   const open=async()=>{const s=connect(url,{forceNew:true,transports:['websocket'],reconnection:false});clients.push(s);await new Promise<void>((resolve,reject)=>{s.once('connect',resolve);s.once('connect_error',reject)});return s};
   let a=await open();const b=await open();
-  const created=await emitAck(a,'room:create',{actionId:crypto.randomUUID(),nickname:'Chủ',visibility:'private'});expect(created.ok).toBe(true);
+  const created=await emitAck(a,'room:create',{actionId:crypto.randomUUID(),nickname:'Chủ',visibility:'private',settings:{gameKey:'uno',turnSeconds:30,targetScore:10,stacking:true}});expect(created.ok).toBe(true);
   const cred=created.credentials!,roomId=cred.roomId;
   const joined=await emitAck(b,'room:join',{actionId:crypto.randomUUID(),nickname:'Khách',code:cred.roomCode});expect(joined.ok).toBe(true);
   const ready=await emitAck(b,'room:ready',action(roomId,joined.snapshot.revision,{ready:true}));
@@ -239,7 +277,7 @@ it('hai socket chơi Nối từ, draft riêng theo lượt, vote, thắng, remat
   const a=await open(),b=await open();
   let latestA:any,latestB:any;
   a.on('room:snapshot',snapshot=>{latestA=snapshot;});b.on('room:snapshot',snapshot=>{latestB=snapshot;});
-  const created=await emitAck(a,'room:create',{actionId:crypto.randomUUID(),nickname:'Mây',visibility:'private',gameKey:'noitu'});
+  const created=await emitAck(a,'room:create',{actionId:crypto.randomUUID(),nickname:'Mây',visibility:'private',gameKey:'noitu',settings:{gameKey:'noitu',turnSeconds:30,targetScore:10}});
   expect(created.ok).toBe(true);expect(created.snapshot!.gameKey).toBe('noitu');
   const owner=created.credentials!;latestA=created.snapshot;
   const joined=await emitAck(b,'room:join',{actionId:crypto.randomUUID(),nickname:'Khoa',code:owner.roomCode});
@@ -327,7 +365,7 @@ it('hai socket chơi Caro qua API, chặn game chéo, thắng, idempotency và r
     return socket;
   };
   const a = await open(); const b = await open();
-  const created = await emitAck(a, 'room:create', { actionId: crypto.randomUUID(), nickname: 'Chủ', visibility: 'private', gameKey: 'caro' });
+  const created = await emitAck(a, 'room:create', { actionId: crypto.randomUUID(), nickname: 'Chủ', visibility: 'private', gameKey: 'caro', settings: { gameKey: 'caro', turnSeconds: 30, targetScore: 10, boardSize: 15, winLength: 5 } });
   expect(created.ok).toBe(true); expect(created.snapshot?.gameKey).toBe('caro');
   const owner = created.credentials!;
   const joined = await emitAck(b, 'room:join', { actionId: crypto.randomUUID(), nickname: 'Khách', code: owner.roomCode });

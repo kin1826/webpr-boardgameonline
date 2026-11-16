@@ -49,11 +49,20 @@ describe('HTTP API origin policy', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('https://game.example.com');
     expect(response.headers.get('vary')).toContain('Origin');
     expect(response.headers.get('access-control-allow-credentials')).toBeNull();
-    expect(await response.json()).toEqual(expect.arrayContaining([
+    const games = await response.json();
+    expect(games).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: 'uno', available: true }),
       expect.objectContaining({ key: 'noitu', available: true }),
       expect.objectContaining({ key: 'caro', available: true, minPlayers: 2, maxPlayers: 2 }),
     ]));
+    expect(games.find((game: any) => game.key === 'uno')).toMatchObject({
+      settingsDefaults: { gameKey: 'uno', turnSeconds: 30, targetScore: 50, stacking: true },
+      options: { turnSeconds: [15, 30, 45, 60], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, stacking: [true, false] },
+    });
+    expect(games.find((game: any) => game.key === 'caro')).toMatchObject({
+      settingsDefaults: { gameKey: 'caro', turnSeconds: 30, targetScore: 50, boardSize: 15, winLength: 5 },
+      options: { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] },
+    });
   });
 
   it('từ chối origin không nằm trong allowlist', async () => {

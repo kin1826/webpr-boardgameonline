@@ -24,8 +24,16 @@ Trạng thái: room/session dùng chung cho UNO, Nối từ và Caro; Nối từ
 - Khách có nút “Sẵn sàng” / “Hủy sẵn sàng”. Chủ phòng có nút “Bắt đầu”; bấm bắt đầu chính là xác nhận của chủ phòng, không cần thêm lần bấm sẵn sàng riêng cho chủ phòng.
 - Server chỉ chấp nhận start khi đúng chủ phòng, game của phòng sẵn sàng, phòng đang chờ, có ít nhất 2 người, tất cả đang kết nối và tất cả khách sẵn sàng.
 - Khi thiếu điều kiện, nút start bị vô hiệu hóa kèm lý do cụ thể như “Cần thêm 1 người”, “Chờ An sẵn sàng”, “Có người đang mất kết nối” hoặc “Từ điển thử nghiệm chưa sẵn sàng”. Khách không thấy nút bắt đầu.
-- Thêm/bớt thành viên, chuyển chủ phòng hoặc bắt đầu ván mới thì reset ready của khách. Disconnect hủy ready của người mất kết nối; reconnect không tự ready lại.
+- Thêm/bớt thành viên, chuyển chủ phòng hoặc bắt đầu một trận mới thì reset ready của khách. Disconnect hủy ready của người mất kết nối; reconnect không tự ready lại. Các ván tiếp theo trong cùng trận tự nối sau countdown 3 giây và không dùng lại ready.
 - Join/ready/kick/start đều qua hàng đợi của phòng. Nếu danh sách đã đổi, start với revision cũ bị từ chối, không chia bài cho một danh sách chưa được xác nhận.
+
+## Trận nhiều ván, cài đặt và public discovery
+
+- Một trận là chuỗi ván của cùng game, roster và settings. Người thắng mỗi ván nhận 10 điểm; hòa/thua/hủy nhận 0. Mục tiêu 10–500 bội số 10, mặc định 50. Điểm chỉ trong RAM và không chuyển giữa phòng/game.
+- Khi chưa ai đạt mục tiêu, server công bố intermission 3 giây rồi mở ván kế tiếp tự động, không reload trình duyệt, không host-confirm/ready lại. Khi đủ mục tiêu, trận dừng. Một kết quả được quyết toán đúng một lần theo gameId/roundId.
+- Người chơi được rời trong intermission. Rời, kick hoặc hết reconnect grace trước khi ván mới bắt đầu hủy countdown và trận; không âm thầm đổi roster. Offline tạm thời pause countdown trong grace; khi tất cả quay lại thì resume phần thời gian còn lại. Callback cũ không thể khởi tạo ván mới sau khi match đã hủy.
+- Host chỉ chỉnh settings trước trận: thời gian lượt 15/30/45/60 giây (mặc định30), mục tiêu điểm, UNO stacking và Caro board9/15/19 cùng win length4/5/6. Thay đổi thật reset ready; khi trận bắt đầu roster/settings khóa. Trận mới có thể reset điểm và chọn cấu hình lại.
+- Public directory hiển thị cả ba game nhưng chỉ phòng đang chờ, công khai, còn chỗ và được server đánh dấu joinable. Client gọi lại API join; danh sách không đảm bảo chỗ và không phải quyền truy cập. Không lộ private, state bàn/bài/từ, token hoặc nội dung score riêng.
 
 ## Quyền chủ phòng và đuổi người
 

@@ -137,6 +137,17 @@ describe('Caro engine — HQ-CARO-1', () => {
   });
 });
 
+describe('Cấu hình kích thước và thời gian lượt', () => {
+  it.each([9, 15, 19] as const)('khởi tạo đúng bàn %i×%i và giới hạn tọa độ theo bàn', (boardSize) => {
+    const state = createCaroGame({ gameId: `size-${boardSize}`, players: [{ id: 'a', nickname: 'An' }, { id: 'b', nickname: 'Bình' }], randomInt: () => 0, now: 1_000, boardSize, turnDurationMs: 45_000 });
+    expect(state.boardSize).toBe(boardSize);
+    expect(state.board).toHaveLength(boardSize * boardSize);
+    expect(state.turnDeadlineAt).toBe(46_000);
+    expect(projectCaroGame(state, 'a', 1_000, false).legalCellIndexes.at(-1)).toBe(boardSize * boardSize - 1);
+    expect(() => place(state, 'a', boardSize, 0, 2_000)).toThrowError(expect.objectContaining({ code: 'INVALID_CELL' }));
+  });
+});
+
 describe('Số quân để thắng tùy chọn', () => {
   it.each([4, 5, 6] as const)('đúng %i quân có đầu mở thắng, chặn hai đầu hoặc vượt số không thắng', (winLength) => {
     const make = () => createCaroGame({ gameId: 'custom', players: [{ id: 'a', nickname: 'An' }, { id: 'b', nickname: 'Bình' }], randomInt: () => 0, now: 0, winLength });

@@ -5,6 +5,7 @@ import PlayerAvatar from '../components/PlayerAvatar';
 import { canConfirmGiveUp, claimSingleAction, timelineFollowAfterScroll, timelineFollowAfterSubmit, type GiveUpTarget } from './interaction-state';
 import type { NoituActionIntent } from '../api/realtime';
 import { activeTurnRowKey, type RejectionPresentation } from './word-tiles';
+import { playSound } from '../audio/soundEffects';
 
 type ActionReply = { ok: boolean; message?: string };
 type Props = {
@@ -54,6 +55,8 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
   const giveUpDialogRef = useRef<HTMLElement>(null);
   const giveUpContinueRef = useRef<HTMLButtonElement>(null);
   const giveUpDialogWasOpenRef = useRef(false);
+  const rejectionSoundIdsRef = useRef(new Set<number>());
+  const previousRemoteDraftRef = useRef<{ key: string; suffix: string } | null>(null);
   onDraftRef.current = onDraft;
   onActionRef.current = onAction;
   onRejectionDoneRef.current = onRejectionAnimationDone;
@@ -121,6 +124,22 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
       if (rejectionTimerRef.current === timer) rejectionTimerRef.current = null;
     };
   }, [rejectionEvent?.id, game?.gameId, game?.turnId, game?.phase, snapshot.phase, snapshot.paused, connected, finishRejection]);
+  useEffect(() => {
+    if (!rejectionEvent || rejectionSoundIdsRef.current.has(rejectionEvent.id)) return;
+    rejectionSoundIdsRef.current.add(rejectionEvent.id);
+    if (rejectionSoundIdsRef.current.size > 64) rejectionSoundIdsRef.current.delete(rejectionSoundIdsRef.current.values().next().value!);
+    if (rejectionEvent.gameId === game?.gameId && rejectionEvent.turnId === game?.turnId && game.phase === 'turn' && snapshot.phase === 'playing' && !snapshot.paused && connected) playSound('reject');
+  }, [rejectionEvent?.id, rejectionEvent?.gameId, rejectionEvent?.turnId, game?.gameId, game?.turnId, game?.phase, snapshot.phase, snapshot.paused, connected]);
+  useEffect(() => {
+    if (!draft || draft.playerId === playerId || !connected || snapshot.paused || document.visibilityState === 'hidden') {
+      previousRemoteDraftRef.current = null;
+      return;
+    }
+    const key = `${draft.gameId}:${draft.turnId}:${draft.playerId}`;
+    const previous = previousRemoteDraftRef.current;
+    if (previous?.key === key && previous.suffix !== draft.suffix) playSound(Array.from(draft.suffix).length < Array.from(previous.suffix).length ? 'delete' : 'type');
+    previousRemoteDraftRef.current = { key, suffix: draft.suffix };
+  }, [draft?.gameId, draft?.turnId, draft?.playerId, draft?.sequence, draft?.suffix, playerId, connected, snapshot.paused]);
   useEffect(() => () => {
     if (rejectionTimerRef.current !== null) window.clearTimeout(rejectionTimerRef.current);
     if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
@@ -336,7 +355,11 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
     else if (['ArrowDown', 'PageDown', 'End'].includes(event.key)) scrollIntentRef.current = 'down';
   }
   function jumpToLatest() { setFollowLatestValue(true); scheduleTimelineFollow(true); }
-  function compositionEnd(event: CompositionEvent<HTMLInputElement>) { setComposing(false); setSuffix(event.currentTarget.value); }
+  function compositionEnd(event: CompositionEvent<HTMLInputElement>) { const value = event.currentTarget.value; if (value !== suffix) playSound('type'); setComposing(false); setSuffix(value); }
+  function changeSuffix(value: string) {
+    if (!composing && value !== suffix) playSound(value.length < suffix.length ? 'delete' : 'type');
+    setSuffix(value); setFormError('');
+  }
 
   return <div className="table-page noitu-page noitu-chat-page">
     <div className="table-topline noitu-topline">
@@ -387,7 +410,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
             <span className="noitu-result-kicker">VÁN ĐÃ KHÉP LẠI</span>
             <h1>{activeGame.winnerId ? `${activeGame.players.find((item) => item.id === activeGame.winnerId)?.nickname ?? 'Người chơi'} thắng ván này!` : 'Ván kết thúc.'}</h1>
             <p>{activeCount} người còn lại · {activeGame.usedCount} từ đã được dùng</p>
-            {snapshot.players.find((item) => item.isHost)?.isYou ? <button className="button button-primary" type="button" disabled={busy || !connected} onClick={onRematch}>Chơi lại</button> : <span>Chờ chủ phòng bắt đầu ván mới.</span>}
+            {snapshot.match?.status === 'finished' && snapshot.players.find((item) => item.isHost)?.isYou ? <button className="button button-primary" type="button" disabled={busy || !connected} onClick={onRematch}>Trận mới</button> : <span>{snapshot.match?.status === 'intermission' ? 'Ván tiếp theo tự bắt đầu sau thời gian đếm ngược.' : 'Trận đã kết thúc.'}</span>}
           </li>}
         </ol>
         {!followLatest && <button className="noitu-jump-latest" type="button" onClick={jumpToLatest}>Về lượt hiện tại ↓</button>}
@@ -401,7 +424,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
         {!proposal && activeGame.phase === 'turn' && isMyTurn && <form className="noitu-composer" onSubmit={(event) => void submit(event)}>
           <div className={`noitu-turn-progress${(seconds ?? 99) <= 5 ? ' is-urgent' : ''}`} role="progressbar" aria-label="Thời gian còn lại của lượt" aria-valuemin={0} aria-valuemax={activeGame.turnDurationMs} aria-valuenow={Math.ceil(remaining ?? 0)}><span style={{ width: `${turnProgress}%` }} /></div>
           <span className="noitu-compose-label">Tiếng cần nối <b>{activeGame.requiredSyllable}</b></span>
-          <label className="noitu-compose-field" htmlFor="noitu-suffix"><span className="sr-only">Tiếng bạn nối</span><input ref={inputRef} id="noitu-suffix" type="text" value={suffix} onChange={(event) => { setSuffix(event.target.value); setFormError(''); }} onCompositionStart={() => setComposing(true)} onCompositionEnd={compositionEnd} onKeyDown={(event) => { if (event.key === 'Enter' && (composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); }} maxLength={64} autoComplete="off" autoCapitalize="none" spellCheck={false} inputMode="text" placeholder="Nhập tiếng tiếp theo…" aria-label={`Tiếng cần nối là ${activeGame.requiredSyllable}. Nhập tiếng tiếp theo`} aria-describedby={formError ? 'noitu-form-error' : 'noitu-compose-help'} disabled={!connected || snapshot.paused || sending} />
+          <label className="noitu-compose-field" htmlFor="noitu-suffix"><span className="sr-only">Tiếng bạn nối</span><input ref={inputRef} id="noitu-suffix" type="text" value={suffix} onChange={(event) => changeSuffix(event.target.value)} onCompositionStart={() => setComposing(true)} onCompositionEnd={compositionEnd} onKeyDown={(event) => { if (event.key === 'Enter' && (composing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault(); }} maxLength={64} autoComplete="off" autoCapitalize="none" spellCheck={false} inputMode="text" placeholder="Nhập tiếng tiếp theo…" aria-label={`Tiếng cần nối là ${activeGame.requiredSyllable}. Nhập tiếng tiếp theo`} aria-describedby={formError ? 'noitu-form-error' : 'noitu-compose-help'} disabled={!connected || snapshot.paused || sending} />
             <button className="button button-primary" type="submit" disabled={!activeGame.canSubmit || busy || sending || !connected || snapshot.paused}>{sending ? 'Đang gửi…' : 'Gửi'}</button>
           </label>
           <div className="noitu-compose-meta">
@@ -411,7 +434,7 @@ export default function NoituTable({ snapshot, playerId, connected, busy, draft,
           </div>
         </form>}
         {!proposal && activeGame.phase === 'turn' && !isMyTurn && <div className="noitu-dock-status"><b>{player?.status === 'eliminated' ? 'Bạn đang xem ván' : `Đang chờ ${current?.nickname ?? 'người chơi'} nối từ`}</b><span>{player?.status === 'eliminated' ? 'Bạn đã bị loại và không thể gửi từ hoặc biểu quyết.' : activeDraftSuffix ? 'Người chơi đang nhập từ của họ.' : 'Đồng hồ sẽ giữ nguyên nếu ván tạm dừng.'}</span></div>}
-        {!proposal && activeGame.phase === 'finished' && <div className="noitu-dock-status"><b>{snapshot.players.find((item) => item.isHost)?.isYou ? 'Bạn là chủ phòng' : 'Ván đã kết thúc'}</b><span>{snapshot.players.find((item) => item.isHost)?.isYou ? 'Bắt đầu ván mới khi mọi người sẵn sàng.' : 'Chờ chủ phòng bắt đầu ván mới.'}</span></div>}
+        {!proposal && activeGame.phase === 'finished' && <div className="noitu-dock-status"><b>{snapshot.match?.status === 'finished' ? 'Trận đã kết thúc' : 'Ván đã kết thúc'}</b><span>{snapshot.match?.status === 'intermission' ? 'Ván tiếp theo tự bắt đầu; không cần sẵn sàng lại.' : 'Chủ phòng có thể mở trận mới.'}</span></div>}
       </section>
     </main>
     {giveUpTarget && <div className="modal-backdrop noitu-giveup-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) dismissGiveUpDialog(); }}>

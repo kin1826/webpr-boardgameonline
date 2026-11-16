@@ -28,10 +28,12 @@ Trạng thái: luật MVP được triển khai trong `packages/noitu`; chờ Te
 
 ## Thời gian, mất kết nối và kết thúc
 
-- Mỗi lượt có 30 giây. Nhận yêu cầu tại hoặc sau `deadlineAt` được coi là hết giờ. Sai từ không đặt lại thời gian.
+- Mỗi lượt có 15/30/45/60 giây theo cấu hình trận; mặc định 30. Nhận yêu cầu tại hoặc sau `deadlineAt` được coi là hết giờ. Sai từ không đặt lại thời gian. Vote vẫn tối đa 15 giây và đóng băng phần lượt còn lại như NT-VI-1.
 - Hết giờ hoặc chọn **Chịu thua** sẽ loại người đang tới lượt khỏi ván. Họ vẫn ở lại phòng và xem tiếp; lượt chuyển cho người còn thi đấu tiếp theo. Khi chỉ còn một người, người đó thắng.
 - Mất kết nối của bất kỳ thành viên nào tạm dừng ván và giữ phần thời gian còn lại; khi mọi người nối lại, server tiếp tục phần thời gian đó. Hết 90 giây reconnect grace, hoặc có người rời/bị kick trong ván, phòng hủy ván theo chính sách vòng đời chung.
-- Chủ phòng có thể chơi lại sau khi ván kết thúc. Ván mới tạo game ID, người bắt đầu và tập từ đã dùng mới.
+- Hết giờ hoặc chọn **Chịu thua** loại người đang tới lượt khỏi ván. Người cuối còn active thắng; người bị loại vẫn xem phòng và không thể quay lại ván hiện tại bằng reconnect.
+- Khi ván được chốt, người thắng nhận 10 điểm; hòa/hủy/thua nhận 0. Mục tiêu trận là 10–500 theo bội số 10, mặc định 50. Chưa đạt mục tiêu thì server tự bắt đầu ván mới sau 3 giây, giữ cùng roster/điểm/cấu hình, không yêu cầu ready lại; mọi người trở lại active và có từ mồi mới. Đạt mục tiêu thì dừng trận.
+- Có thể rời trong countdown; nếu có người rời/kick/hết grace, server hủy countdown và trận theo chính sách roster cố định. Không tính điểm cho ván hủy. Hệ thống không lưu điểm sau restart.
 
 ## Dữ liệu thử nghiệm và giới hạn
 
@@ -45,4 +47,6 @@ Trạng thái: luật MVP được triển khai trong `packages/noitu`; chờ Te
 - Bộ ứng viên: [Underthesea Dictionary](https://github.com/undertheseanlp/dictionary), snapshot commit `2c078cfc373b06e2980d324ce1d7bd13740c3319`, file `dictionary/words.txt`; đường dẫn, SHA và tài liệu upstream được giữ tại `data/word-chain/source/underthesea/`.
 - Cách lọc ban đầu và giới hạn nguồn: [data/word-chain/README.md](../data/word-chain/README.md), [filter-report.json](../data/word-chain/filter-report.json), [provenance.json](../data/word-chain/source/underthesea/provenance.json).
 - GPL-3.0 trong README upstream áp dụng cho mã nguồn theo khai báo đó; chưa có căn cứ khẳng định các danh sách dữ liệu thành phần đều được cấp cùng giấy phép.
-- Thời gian 30/15 giây, strict majority, timeout vote tính bác, hai đề xuất lạ mỗi lượt, từ mồi và cách loại người là lựa chọn nhất quán NT-VI-1 cho bản thử. Không cộng dồn người chơi, không bot/AI xét nghĩa, không host override.
+- Thời gian vote 15 giây, strict majority, timeout vote tính bác, hai đề xuất lạ mỗi lượt, từ mồi và cách loại người là lựa chọn nhất quán NT-VI-1 cho bản thử. Không cộng dồn người chơi, không bot/AI xét nghĩa, không host override.
+
+Timer lượt 15/30/45/60 giây và chuỗi trận/điểm nêu trên là cấu hình mới của Hội Quậy; không thay thời gian vote 15 giây, quorum, luật từ điển hay các quyết định NT-VI-1 khác. Việc bổ sung/đánh giá bộ từ vựng nằm ngoài đợt thay đổi này.

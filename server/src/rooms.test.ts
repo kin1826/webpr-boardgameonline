@@ -65,7 +65,7 @@ describe('Phòng UNO và quyền dùng chung', () => {
     const kicked = service.kick(host.room,host.seat,second.seat.id);
     expect(kicked.wasPlaying).toBe(true);
     expect(host.room.phase).toBe('waiting'); expect(host.room.game).toBeNull();
-    expect(host.room.notice).toMatch(/ván đã hủy/i);
+    expect(host.room.notice).toMatch(/trận đã hủy/i);
   });
   it('reconnect khôi phục cùng ghế và thu hồi socket cũ', () => {
     const revoked: string[] = [];
@@ -184,7 +184,7 @@ describe('Phòng Nối từ và timer theo game',()=>{
   it('deadline lượt kết thúc đúng biên, người hết giờ bị loại và callback cũ không phá rematch',async()=>{
     vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
     const service=new RoomService({noitu,randomInt:()=>0});services.push(service);
-    const host=service.create('Chủ','private','h','noitu');const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
+    const host=service.create('Chủ','private','h','noitu',0,{ gameKey:'noitu', turnSeconds:30, targetScore:10 });const guest=service.join(host.room.code,'Khách','g');service.ready(host.room,guest.seat,true);service.start(host.room,host.seat);
     const oldGameId=host.room.noituGame!.gameId;
     await vi.advanceTimersByTimeAsync(30_000);
     expect(host.room.phase).toBe('finished');expect(host.room.noituGame?.winnerId).toBe(guest.seat.id);
@@ -227,7 +227,7 @@ describe('Phòng Caro HQ-CARO-1', () => {
   it('timeout chốt đúng biên, resume giữ lại thời gian và callback cũ không tác động ván mới', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
     const service = new RoomService({ randomInt: () => 0 }); services.push(service);
-    const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
+    const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:10, boardSize:15, winLength:5 }); const guest = service.join(host.room.code, 'Khách', 'g');
     service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
     const oldId = host.room.caroGame!.gameId;
     vi.advanceTimersByTime(8_000); service.disconnect(host.room.id, host.seat.id, 'h');
@@ -248,14 +248,14 @@ describe('Phòng Caro HQ-CARO-1', () => {
     const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
     service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
     service.leave(host.room, guest.seat);
-    expect(host.room.phase).toBe('waiting'); expect(host.room.caroGame).toBeNull(); expect(host.room.notice).toMatch(/ván bị hủy/iu);
+    expect(host.room.phase).toBe('waiting'); expect(host.room.caroGame).toBeNull(); expect(host.room.notice).toMatch(/trận bị hủy/iu);
     vi.advanceTimersByTime(40_000);
     expect(host.room.phase).toBe('waiting');
   });
 
   it('đổi thành viên thì bốc lại X thay vì đảo ký hiệu của cặp cũ', () => {
     const service = new RoomService({ randomInt: () => 0 }); services.push(service);
-    const host = service.create('Chủ', 'private', 'h', 'caro');
+    const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:10, boardSize:15, winLength:5 });
     const firstGuest = service.join(host.room.code, 'Khách cũ', 'g1');
     service.ready(host.room, firstGuest.seat, true); service.start(host.room, host.seat);
     const activeGame = host.room.caroGame!;
@@ -271,9 +271,87 @@ describe('Phòng Caro HQ-CARO-1', () => {
   });
 });
 
+describe('Trận nhiều ván, cài đặt và countdown server', () => {
+  it('đổi settings chỉ qua host, reset ready và mang cấu hình vào snapshot/sảnh public', () => {
+    const service = create();
+    const host = service.create('Chủ', 'public', 'h', 'caro');
+    const guest = service.join(host.room.code, 'Khách', 'g'); service.ready(host.room, guest.seat, true);
+    const settings = { gameKey:'caro' as const, turnSeconds:45 as const, targetScore:100, boardSize:19 as const, winLength:6 as const };
+    expect(() => service.updateSettings(host.room, guest.seat, settings)).toThrowError(expect.objectContaining({ code:'HOST_ONLY' }));
+    service.updateSettings(host.room, host.seat, settings);
+    expect(guest.seat.ready).toBe(false);
+    expect(service.snapshot(host.room, guest.seat.id)).toMatchObject({ settings, caroWinLength:6 });
+    service.create('UNO', 'public', 'u', 'uno', 0, { gameKey:'uno', turnSeconds:45, targetScore:100, stacking:false });
+    expect(service.publicRooms()[0]).toMatchObject({ targetScore:100, turnSeconds:45, settings:{ gameKey:'uno', turnSeconds:45, targetScore:100, stacking:false } });
+  });
+
+  it('cộng +10 một lần, tự mở ván mới sau đúng 3 giây và giữ điểm/ghế dù không ready lại', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const service = create();
+    const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:50, boardSize:9, winLength:4 });
+    const guest = service.join(host.room.code, 'Khách', 'g'); service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    const firstId = host.room.caroGame!.gameId;
+    service.caroAction(host.room, host.seat, host.room.revision, { actionId:'match-resign-1', roomId:host.room.id, expectedRevision:host.room.revision, gameId:firstId, type:'resign' });
+    expect(host.room.match).toMatchObject({ status:'intermission', roundNumber:1, nextRoundAt:Date.now()+3_000, lastRound:{ winnerId:guest.seat.id, points:10 } });
+    expect(host.room.match!.scores.get(guest.seat.id)).toBe(10);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(host.room.caroGame!.gameId).toBe(firstId);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(host.room.phase).toBe('playing'); expect(host.room.match).toMatchObject({ status:'active', roundNumber:2 });
+    expect(host.room.match!.scores.get(guest.seat.id)).toBe(10);
+    expect(host.room.caroGame!.gameId).not.toBe(firstId);
+    expect(guest.seat.ready).toBe(true);
+  });
+
+  it('hủy countdown/trận nếu có người rời trong intermission, không để timer mở ván ma', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const service = create();
+    const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:50, boardSize:9, winLength:4 });
+    const guest = service.join(host.room.code, 'Khách', 'g'); service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    service.caroAction(host.room, host.seat, host.room.revision, { actionId:'match-resign-2', roomId:host.room.id, expectedRevision:host.room.revision, gameId:host.room.caroGame!.gameId, type:'resign' });
+    const oldId = host.room.caroGame!.gameId;
+    service.leave(host.room, guest.seat);
+    expect(host.room.phase).toBe('waiting'); expect(host.room.match).toBeNull(); expect(host.room.caroGame).toBeNull();
+    await vi.advanceTimersByTimeAsync(3_001);
+    expect(host.room.phase).toBe('waiting'); expect(host.room.caroGame).toBeNull(); expect(host.room.match).toBeNull();
+    expect(oldId).toBeTruthy();
+  });
+
+  it('tạm dừng phần còn lại của countdown khi mất kết nối, nối lại cùng roster và tiếp tục', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const service = create();
+    const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:50, boardSize:9, winLength:4 });
+    const guest = service.join(host.room.code, 'Khách', 'g'); service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    service.caroAction(host.room, host.seat, host.room.revision, { actionId:'match-resign-3', roomId:host.room.id, expectedRevision:host.room.revision, gameId:host.room.caroGame!.gameId, type:'resign' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    service.disconnect(host.room.id, guest.seat.id, 'g');
+    expect(host.room.match?.remainingMs).toBe(2_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    service.resume(host.room.id, guest.seat.id, guest.credentials.token, 'g-new');
+    expect(host.room.match?.nextRoundAt).toBe(Date.now()+2_000);
+    await vi.advanceTimersByTimeAsync(1_999); expect(host.room.match?.roundNumber).toBe(1);
+    await vi.advanceTimersByTimeAsync(1); expect(host.room.match?.roundNumber).toBe(2);
+  });
+
+  it('UNO timeout loại lượt hiện tại, giữ tay bài và chốt trận khi chỉ còn một active', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const service = create();
+    const host = service.create('Chủ', 'private', 'h', 'uno', 0, { gameKey:'uno', turnSeconds:15, targetScore:10, stacking:true });
+    const guest = service.join(host.room.code, 'Khách', 'g'); service.ready(host.room, guest.seat, true); service.start(host.room, host.seat);
+    const timedOutId = host.room.game!.currentPlayerId;
+    const handCount = host.room.game!.players.find((player) => player.id === timedOutId)!.hand.length;
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(host.room.game?.phase).toBe('finished'); expect(host.room.game?.finishReason).toBe('lastActive');
+    const timedOutPlayer = host.room.game?.players.find((player) => player.id === timedOutId);
+    expect(timedOutPlayer?.status).toBe('eliminated'); expect(timedOutPlayer?.hand).toHaveLength(handCount);
+    expect(host.room.match).toMatchObject({ status:'finished', targetScore:10, roundNumber:1 });
+    expect(host.room.match!.scores.get(timedOutId === host.seat.id ? guest.seat.id : host.seat.id)).toBe(10);
+  });
+});
+
 it('chỉ host Caro được đổi số quân trong sảnh, reset ready, đồng bộ và giữ cấu hình rematch', () => {
   const service = new RoomService({ randomInt: () => 0 }); services.push(service);
-  const host = service.create('Chủ', 'private', 'h', 'caro'); const guest = service.join(host.room.code, 'Khách', 'g');
+  const host = service.create('Chủ', 'private', 'h', 'caro', 0, { gameKey:'caro', turnSeconds:30, targetScore:10, boardSize:15, winLength:5 }); const guest = service.join(host.room.code, 'Khách', 'g');
   service.ready(host.room, guest.seat, true);
   expect(() => service.setCaroWinLength(host.room, guest.seat, 4)).toThrow();
   service.setCaroWinLength(host.room, host.seat, 4);

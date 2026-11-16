@@ -15,7 +15,7 @@ Không trộn Standard Caro với freestyle (từ 5 trở lên thắng) hoặc R
 ## Người chơi, bàn và lượt
 
 - Đúng **2 người thật**, một X và một O; không bot, khán giả hay chơi theo đội trong bản đầu. Room Caro min/max đều 2; UNO/Nối từ vẫn 2–6.
-- Bàn 15×15 = 225 vị trí. Dùng ô vuông chứa X/O để dễ chạm, thay cách đặt quân tại giao điểm của bàn cờ truyền thống. Tọa độ hàng/cột 0–14 ở API.
+- Bàn chọn 9×9, 15×15 hoặc 19×19; mặc định 15×15. Dùng ô vuông chứa X/O để dễ chạm, thay cách đặt quân tại giao điểm của bàn cờ truyền thống. Tọa độ hàng/cột từ 0 tới `boardSize-1` ở API.
 - Server bốc ngẫu nhiên người cầm X cho ván đầu; X đi trước. Ván mới trong cùng phòng với đúng hai người cũ đổi người cầm X; thành viên thay đổi thì bốc lại. Rematch vẫn về sảnh, khách ready rồi chủ bắt đầu.
 - Mỗi lượt đặt đúng một quân của mình vào ô trống. Không di chuyển/xóa quân, không bỏ lượt hoặc xin đi lại. Không ép nước đầu ở giữa, không Swap/Swap2 hoặc nước cấm đôi ba/đôi bốn.
 
@@ -33,16 +33,22 @@ Ví dụ với mục tiêu mặc định 5: `·XXXXX·`, `OXXXXX·` thắng; `OX
 
 ## Thời gian, chịu thua và kết nối — lựa chọn MVP
 
-- Mỗi lượt 30 giây do server quản lý. Hết giờ người đang lượt thua; intent đến tại `now >= deadline` không được đặt quân. Chịu thua có dialog web, đối thủ thắng. UI đếm ngược/thanh thời gian chỉ hiển thị.
+- Mỗi lượt 15/30/45/60 giây theo cấu hình trận; mặc định 30 giây do server quản lý. Hết giờ người đang lượt thua ván và chờ ván sau; intent đến tại `now >= deadline` không được đặt quân. Chịu thua có dialog web, đối thủ thắng. UI đếm ngược/thanh thời gian chỉ hiển thị.
 - Mạng gián đoạn: giữ ghế và tạm dừng đồng hồ, tối đa 90 giây theo room/session hiện hành. Resume giữ bàn/quân/lượt và thời gian còn lại, không reset 30 giây.
 - Leave/kick/quá hạn reconnect khi đang chơi: **hủy ván**, không trao thắng; dùng chính sách chung đã có của phòng. Khác với hành động chịu thua có chủ ý. Reset ready và chuyển host theo chính sách chung.
-- Không triển khai đề nghị hòa, xin đi lại, đồng hồ tổng ván, điểm/rating hoặc lưu lịch sử lâu dài. Hòa chỉ khi kín bàn.
+- Không triển khai đề nghị hòa, xin đi lại, đồng hồ tổng ván, rating hoặc lưu lịch sử lâu dài. Hòa chỉ khi kín bàn.
 - Ván kết thúc khóa đánh, dừng timer. Chủ phòng cho về sảnh/chơi lại; kết quả có lý do `five`, `timeout`, `resign`, `board-full` hoặc thông báo hủy của room.
 
 ## Hướng dẫn ngắn cho màn Luật chơi
 
-“Hai người thay phiên đánh X và O. Chủ phòng chọn 4/5/6 quân (mặc định 5). Nối đúng số đã chọn ngang, dọc hoặc chéo, còn ít nhất một đầu trống để thắng. Bị chặn hai đầu hoặc nối quá mục tiêu chưa thắng. Mép bàn tính là đầu bị chặn. Mỗi lượt 30 giây; hết giờ hoặc chịu thua là thua ván.”
+“Hai người thay phiên đánh X và O. Chọn bàn 9×9, 15×15 hoặc 19×19, rồi chọn nối đúng 4/5/6 quân. Nối ngang, dọc hoặc chéo, còn ít nhất một đầu trống để thắng. Bị chặn hai đầu hoặc nối quá mục tiêu chưa thắng. Mép bàn tính là đầu bị chặn. Mỗi lượt chọn 15/30/45/60 giây; hết giờ hoặc chịu thua là thua ván.”
 
-## Cấu hình số quân để thắng
+## Cấu hình Caro
 
-Chỉ chủ phòng được đổi mục tiêu 4/5/6 khi phòng đang chờ. Đổi giá trị reset sẵn sàng của khách và phát snapshot mới; khách phải sẵn sàng lại. Không đổi giữa ván. Mục tiêu được lưu trong phòng và `game.winLength`, giữ qua rematch/reconnect. Đây là tùy chỉnh Hội Quậy theo yêu cầu người dùng; Standard Caro vẫn là nguồn tham chiếu mục tiêu mặc định 5. `finishReason: 'five'` giữ làm mã kết quả nối đủ quân để tương thích giao thức; UI dùng `winLength` để hiển thị số thực tế.
+Chỉ chủ phòng được đổi board size 9/15/19 và mục tiêu 4/5/6 khi phòng chờ hoặc lúc cấu hình trận mới. Đổi giá trị reset sẵn sàng của khách và phát snapshot mới; khách phải sẵn sàng lại trước ván đầu. Không đổi trong trận đang chạy. Mục tiêu được lưu trong phòng và `game.winLength`, giữ qua các ván/reconnect. Các size 9/19 là preset sản phẩm, không phải điều kiện nguồn thi đấu. `finishReason: 'five'` giữ làm mã kết quả nối đủ quân để tương thích giao thức; UI dùng `winLength` thực tế.
+
+## Hai lần chọn ô và điểm trận
+
+- Click/chạm lần đầu chọn ô trống và hiện preview quân; kích hoạt lần hai trên cùng ô gửi nước đi. Chọn ô khác chuyển preview; ô mới phải được kích hoạt lần nữa. Bàn phím Enter/Space cũng theo chọn→xác nhận; pan/zoom không đặt quân.
+- Mỗi ván thắng được 10 điểm, hòa/hủy/thua 0. Mục tiêu trận 10–500 theo bội số 10, mặc định 50. Chưa đạt thì server tự khởi tạo ván mới sau 3 giây với cùng người/cấu hình và không yêu cầu ready lại. Đạt mục tiêu thì dừng trận.
+- Có thể rời trong countdown; rời/kick/hết grace hủy countdown và trận, không tính điểm cho ván bị hủy. Điểm chỉ trong RAM.
