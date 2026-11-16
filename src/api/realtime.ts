@@ -2,7 +2,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
   type GameEffectEvent, type GameKey, type NoituDraftNotice, type NoituDraftPayload,
-  type CaroActionPayload, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
+  type CaroActionPayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
 } from '@banban/shared';
 import { createActionId } from '../action-id';
 import type { BackendApiConfig } from './config';
@@ -28,6 +28,7 @@ export type RoomCommandInput =
   | { event: 'room:ready'; ready: boolean }
   | { event: 'room:visibility'; visibility: RoomVisibility }
   | { event: 'room:caro-settings'; winLength: 4 | 5 | 6 }
+  | { event: 'room:settings'; settings: GameSettings }
   | { event: 'room:kick'; targetPlayerId: string };
 
 export type RealtimeHandlers = {
@@ -110,7 +111,7 @@ export class RealtimeApiClient {
     };
   }
 
-  createRoom(input: { nickname: string; avatarId: number; visibility: RoomVisibility; gameKey?: GameKey }): Promise<ApiReply> {
+  createRoom(input: { nickname: string; avatarId: number; visibility: RoomVisibility; gameKey?: GameKey; settings?: GameSettings }): Promise<ApiReply> {
     return this.emitAck('room:create', { actionId: createActionId(), ...input });
   }
 

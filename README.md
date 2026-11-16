@@ -1,5 +1,7 @@
 # Hội Quậy — UNO, Nối từ và Caro trực tuyến
 
+Phiên bản **Fix 1.1 (`v1.1.0`)** — bản cập nhật dành cho CLB chơi thử. Xem [đánh giá, thay đổi và kiểm chứng phát hành](docs/reports/fix-1.1/summary.md).
+
 Bản MVP chơi UNO tùy chỉnh **BB-UNO-1**, Nối từ **NT-VI-1** và Caro **HQ-CARO-1** cùng bạn bè bằng mã phòng. Caro chơi đúng 2 người; UNO/Nối từ chơi 2–6 người. Giao diện và thông báo bằng tiếng Việt. Đây là dự án không chính thức, không liên kết với Mattel. Xem [luật UNO](docs/uno-rules.md), [luật Nối từ](docs/noitu-rules.md) và [luật Caro](docs/caro-rules.md).
 
 ## Công nghệ
@@ -27,7 +29,7 @@ Mở `http://localhost:5173`. Vite phục vụ giao diện, chuyển `/socket.io
 1. Cho phép kết nối qua firewall của máy chạy web.
 2. Tìm IP LAN của máy đó (macOS thường dùng `ipconfig getifaddr en0`; Windows dùng `ipconfig`).
 3. Trên điện thoại mở `http://<IP-LAN>:5173`. Điện thoại và máy tính cần cùng mạng Wi-Fi; một số mạng khách chặn thiết bị nhìn thấy nhau.
-4. Tạo phòng công khai hoặc riêng tư trên một thiết bị, rồi nhập mã 6 ký tự trên thiết bị kia.
+4. Tạo phòng trên một thiết bị. Người chơi khác có thể vào bằng mã hoặc chọn thẳng phòng công khai trong sảnh.
 
 Dev server và backend mặc định bind `0.0.0.0`; không cần đưa cổng backend trực tiếp ra Internet. Link mời giữ origin mà người tạo đang mở và chỉ điền sẵn mã; người nhận vẫn bấm “Vào phòng”.
 
@@ -62,28 +64,34 @@ Vercel chỉ host static frontend trong cấu hình này. Backend phải phục 
 
 ## Luồng chơi
 
-- Trang chủ có thẻ UNO, Nối từ, Caro và ô nhập mã. Chọn game để tạo phòng riêng hoặc công khai; phòng vẫn vào bằng mã.
-- Phòng công khai hiện trong danh sách để người chơi chép mã; không tự ghép trận hoặc vào thẳng phòng. Phòng riêng tư không hiện trong danh sách.
-- UNO/Nối từ hỗ trợ 2–6 người. Caro yêu cầu đúng 2 người. Khách bấm “Sẵn sàng”; chủ phòng bắt đầu khi đủ số người của game, mọi khách đang kết nối và đã sẵn sàng.
-- Chủ phòng có thể mời người chơi ra. Nếu ván đang diễn ra, hành động đó hủy ván và đưa người còn lại về phòng chờ.
-- Reload/mất mạng ngắn dùng token nối lại trong localStorage để về đúng ghế. Ghế offline được giữ 90 giây; hết hạn thì hủy ván đang chơi. Server khởi động lại làm mất toàn bộ phòng và phiên.
-- Kết thúc ván, chủ phòng có thể bắt đầu lượt chơi mới trong cùng phòng.
+- Trang chủ có thẻ UNO, Nối từ, Caro, ô nhập mã và danh sách phòng công khai đang chờ. Chọn một phòng công khai để vào trực tiếp; phòng riêng chỉ vào bằng mã/link.
+- Khi tạo phòng, panel cài đặt cho chọn công khai/riêng tư, mục tiêu trận, thời gian mỗi lượt và tùy chọn riêng của game. Chủ phòng có thể chỉnh trước khi bắt đầu; khách cần sẵn sàng lại sau khi cấu hình đổi.
+- UNO/Nối từ hỗ trợ 2–6 người. Caro yêu cầu đúng 2 người. Khách bấm “Sẵn sàng”; chủ phòng bắt đầu khi đủ người, mọi khách đang kết nối và đã sẵn sàng.
+- Chủ phòng có thể mời người chơi ra. Nếu trận đã bắt đầu, thay đổi roster sẽ hủy trận đang chạy.
+- Reload/mất mạng ngắn dùng token nối lại trong localStorage để về đúng ghế. Ghế offline được giữ 90 giây; hết hạn thì áp dụng xử lý disconnect/timeout của game. Server khởi động lại làm mất toàn bộ phòng và phiên.
+- Mỗi ván thắng cộng 10 điểm vào trận. Nếu chưa đạt mục tiêu, server tự bắt đầu ván tiếp theo sau 3 giây; không cần sẵn sàng lại. Người chơi có thể rời trong countdown, khi đó trận/countdown bị hủy.
+- Hiệu ứng âm thanh bật sau tương tác đầu tiên, có công tắc và âm lượng riêng trên thiết bị; tùy chọn lưu cục bộ.
 
 ## Luật UNO
 
-Bộ 108 lá tham khảo UNO W2085 của Mattel. Luật đang chạy là BB-UNO-1, có cộng dồn +2/+4, +4 tự do không challenge, Reverse hai người như Skip. Bàn bắt đầu trống; đánh hợp lệ lá cuối là thắng ngay, kể cả +2/+4. Không jump-in hoặc đánh nhiều lá. Xem [hồ sơ luật](docs/uno-rules.md).
+Bộ 108 lá tham khảo UNO W2085 của Mattel. Luật đang chạy là BB-UNO-1, có thể bật/tắt cộng dồn +2/+4 theo cài đặt phòng; +4 tự do không challenge, Reverse hai người như Skip. Bàn bắt đầu trống; đánh hợp lệ lá cuối là thắng ngay, kể cả +2/+4. Không jump-in hoặc đánh nhiều lá. Hết giờ thì người chơi bị loại khỏi ván và chờ ván sau. Bàn không gợi ý lá hợp lệ; server vẫn xác thực mọi nước đi. Xem [hồ sơ luật](docs/uno-rules.md).
 
 ## Nối từ
 
-NT-VI-1 dùng từ mồi được server chọn, tiếng cuối khóa ở input, lượt 30 giây, người chịu thua/hết giờ bị loại và người cuối thắng. Từ chưa có trong playable list được đưa ra vote nhóm 15 giây; giới hạn hai đề xuất lạ mỗi lượt. Chi tiết ở [docs/noitu-rules.md](docs/noitu-rules.md).
+NT-VI-1 dùng từ mồi được server chọn, tiếng cuối khóa ở input, thời gian lượt theo cài đặt phòng (mặc định 30 giây), người chịu thua/hết giờ bị loại và người cuối thắng. Từ chưa có trong playable list được đưa ra vote nhóm 15 giây; giới hạn hai đề xuất lạ mỗi lượt. Người bị loại chờ ván tiếp theo; những người còn active tiếp tục. Chi tiết ở [docs/noitu-rules.md](docs/noitu-rules.md).
+
+## Caro
+
+HQ-CARO-1 chơi đúng 2 người. Chủ phòng chọn bàn 9×9, 15×15 hoặc 19×19, mục tiêu nối đúng 4, 5 hoặc 6 quân và thời gian lượt. Chọn một ô rồi kích hoạt cùng ô lần nữa để đánh; server xác nhận nước đi và thắng/thua theo luật hiện hành. Chi tiết ở [docs/caro-rules.md](docs/caro-rules.md).
 
 Từ điển đang là snapshot thử nghiệm 47.877 mục. Bộ nguồn chưa được rà nghĩa toàn tập và quyền phân phối dữ liệu chưa được xác minh theo từng nguồn; không nên phân phối bộ từ này công khai trước khi giải quyết. Nếu nạp/hash dữ liệu lỗi, Nối từ bị tắt riêng, UNO vẫn hoạt động. Dữ liệu, provenance và cách tái tạo nằm ở `data/word-chain/`.
 
 ## Tài liệu
 
-[Mục lục docs](docs/README.md) · [Tình trạng deploy và kiểm chứng](docs/reports/deployment-readiness/summary.md)
+[Mục lục docs](docs/README.md) · [Bản Fix 1.1 và kiểm chứng](docs/reports/fix-1.1/summary.md)
 
 - [Tóm tắt dự án, lịch sử và kết quả kiểm chứng](docs/reports/project-summary.md)
+- [Tổng kết Fix 1.1 và bàn giao Terra](docs/reports/fix-1.1/summary.md)
 - [Luật BB-UNO-1 và nguồn tham khảo](docs/uno-rules.md)
 - [Luật NT-VI-1](docs/noitu-rules.md)
 - [Luật HQ-CARO-1](docs/caro-rules.md)
@@ -101,4 +109,4 @@ Bắt đầu tính năng mới thì tạo hồ sơ riêng trong `docs/reports/<t
 
 ## Giới hạn
 
-Đây là MVP một process, trạng thái chỉ trong RAM. Khi process dừng hoặc deploy lại, phòng đang chơi mất. Chưa có database, tài khoản, spectate, bot hoặc hệ thống nhiều backend. Caro và Nối từ cần nghiệm thu độc lập của Terra; xem báo cáo triển khai và QA để biết kiểm tra nào đã chạy, phần nào còn thiếu.
+Đây là MVP một process, trạng thái chỉ trong RAM. Khi process dừng hoặc deploy lại, phòng đang chơi mất. Chưa có database, tài khoản, spectate, bot hoặc hệ thống nhiều backend. Bản Fix 1.1 cần Terra nghiệm thu độc lập; xem [tổng kết và checklist](docs/reports/fix-1.1/summary.md) để biết kiểm tra nào đã chạy, phần nào còn thiếu.

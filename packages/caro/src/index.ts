@@ -1,6 +1,8 @@
 export const CARO_BOARD_SIZE = 15;
 export const CARO_CELL_COUNT = CARO_BOARD_SIZE * CARO_BOARD_SIZE;
 export const CARO_TURN_MS = 30_000;
+export const CARO_BOARD_SIZES = [9, 15, 19] as const;
+export type CaroBoardSize = typeof CARO_BOARD_SIZES[number];
 
 export type CaroWinLength = 4 | 5 | 6;
 export type CaroSymbol = 'X' | 'O';
@@ -10,7 +12,9 @@ export type CaroFinishReason = 'five' | 'timeout' | 'resign' | 'board-full';
 export type CaroState = {
   gameId: string;
   revision: number;
+  boardSize: CaroBoardSize;
   winLength: CaroWinLength;
+  turnDurationMs: number;
   players: CaroPlayer[];
   board: Array<CaroSymbol | null>;
   phase: 'turn' | 'finished';
@@ -30,6 +34,7 @@ export type CaroIntent =
 export type CaroPublicGame = {
   gameId: string;
   revision: number;
+  boardSize: CaroBoardSize;
   winLength: CaroWinLength;
   players: CaroPlayer[];
   board: Array<CaroSymbol | null>;
@@ -68,8 +73,14 @@ export function createCaroGame(input: {
   now: number;
   xPlayerId?: string;
   winLength?: CaroWinLength;
+  boardSize?: CaroBoardSize;
+  turnDurationMs?: number;
 }): CaroState {
   const winLength = input.winLength ?? 5;
+  const boardSize = input.boardSize ?? CARO_BOARD_SIZE;
+  const turnDurationMs = input.turnDurationMs ?? CARO_TURN_MS;
+  if (!(CARO_BOARD_SIZES as readonly number[]).includes(boardSize)) throw new CaroRuleError('INVALID_BOARD_SIZE', 'Chỉ chọn bàn cờ 9×9, 15×15 hoặc 19×19.');
+  if (!Number.isInteger(turnDurationMs) || turnDurationMs < 1_000 || turnDurationMs > 300_000) throw new CaroRuleError('INVALID_TURN_DURATION', 'Thời gian lượt không hợp lệ.');
   if (![4, 5, 6].includes(winLength)) throw new CaroRuleError('INVALID_WIN_LENGTH', 'Chỉ chọn 4, 5 hoặc 6 quân để thắng.');
   if (input.players.length !== 2) throw new CaroRuleError('PLAYER_COUNT', 'Caro cần đúng 2 người chơi.');
   if (new Set(input.players.map((player) => player.id)).size !== 2) throw new CaroRuleError('DUPLICATE_PLAYER', 'Danh sách người chơi bị trùng.');
@@ -78,15 +89,17 @@ export function createCaroGame(input: {
   return {
     gameId: input.gameId,
     revision: 0,
+    boardSize,
     winLength,
+    turnDurationMs,
     players: input.players.map((player, index) => ({ ...player, symbol: index === xIndex ? 'X' : 'O' })),
-    board: Array.from({ length: CARO_CELL_COUNT }, () => null),
+    board: Array.from({ length: boardSize * boardSize }, () => null),
     phase: 'turn',
     currentPlayerId: input.players[xIndex]!.id,
     turnId: `${input.gameId}:turn:0`,
     lastMove: null,
     winningLines: [],
-    turnDeadlineAt: input.now + CARO_TURN_MS,
+    turnDeadlineAt: input.now + turnDurationMs,
     turnRemainingMs: null,
     winnerId: null,
     finishReason: null,
@@ -94,8 +107,8 @@ export function createCaroGame(input: {
   };
 }
 
-function indexOf(row: number, col: number) { return row * CARO_BOARD_SIZE + col; }
-function inBounds(row: number, col: number) { return row >= 0 && row < CARO_BOARD_SIZE && col >= 0 && col < CARO_BOARD_SIZE; }
+function indexOf(size: number, row: number, col: number) { return row * size + col; }
+function inBounds(size: number, row: number, col: number) { return row >= 0 && row < size && col >= 0 && col < size; }
 function playerFor(state: CaroState, playerId: string) {
   const player = state.players.find((item) => item.id === playerId);
   if (!player) throw new CaroRuleError('PLAYER_NOT_IN_GAME', 'Bạn không còn trong ván này.');
@@ -104,11 +117,11 @@ function playerFor(state: CaroState, playerId: string) {
 
 function maximalLine(state: CaroState, row: number, col: number, symbol: CaroSymbol, dr: number, dc: number): CaroPosition[] {
   const backwards: CaroPosition[] = [];
-  for (let step = 1; inBounds(row - dr * step, col - dc * step) && state.board[indexOf(row - dr * step, col - dc * step)] === symbol; step++) {
+  for (let step = 1; inBounds(state.boardSize, row - dr * step, col - dc * step) && state.board[indexOf(state.boardSize, row - dr * step, col - dc * step)] === symbol; step++) {
     backwards.unshift({ row: row - dr * step, col: col - dc * step });
   }
   const forwards: CaroPosition[] = [];
-  for (let step = 1; inBounds(row + dr * step, col + dc * step) && state.board[indexOf(row + dr * step, col + dc * step)] === symbol; step++) {
+  for (let step = 1; inBounds(state.boardSize, row + dr * step, col + dc * step) && state.board[indexOf(state.boardSize, row + dr * step, col + dc * step)] === symbol; step++) {
     forwards.push({ row: row + dr * step, col: col + dc * step });
   }
   return [...backwards, { row, col }, ...forwards];
@@ -119,7 +132,7 @@ function hasOpenEnd(state: CaroState, line: CaroPosition[], dr: number, dc: numb
   const last = line.at(-1)!;
   const before = { row: first.row - dr, col: first.col - dc };
   const after = { row: last.row + dr, col: last.col + dc };
-  return [before, after].some((point) => inBounds(point.row, point.col) && state.board[indexOf(point.row, point.col)] === null);
+  return [before, after].some((point) => inBounds(state.boardSize, point.row, point.col) && state.board[indexOf(state.boardSize, point.row, point.col)] === null);
 }
 
 function finish(state: CaroState, winnerId: string | null, reason: CaroFinishReason, notice: string) {
@@ -145,8 +158,8 @@ export function applyCaroAction(before: CaroState, actorId: string, intent: Caro
   if (before.turnDeadlineAt === null || now >= before.turnDeadlineAt) throw new CaroRuleError('TURN_EXPIRED', 'Đã hết thời gian lượt.');
   if (intent.turnId !== before.turnId) throw new CaroRuleError('STALE_TURN', 'Lượt đã thay đổi. Bàn chơi đang được cập nhật.');
   if (before.currentPlayerId !== actorId) throw new CaroRuleError('NOT_YOUR_TURN', 'Chưa tới lượt bạn.');
-  if (!Number.isInteger(intent.row) || !Number.isInteger(intent.col) || !inBounds(intent.row, intent.col)) throw new CaroRuleError('INVALID_CELL', 'Ô cờ không hợp lệ.');
-  const cellIndex = indexOf(intent.row, intent.col);
+  if (!Number.isInteger(intent.row) || !Number.isInteger(intent.col) || !inBounds(before.boardSize, intent.row, intent.col)) throw new CaroRuleError('INVALID_CELL', 'Ô cờ không hợp lệ.');
+  const cellIndex = indexOf(before.boardSize, intent.row, intent.col);
   if (before.board[cellIndex] !== null) throw new CaroRuleError('CELL_OCCUPIED', 'Ô này đã có quân.');
 
   const state = structuredClone(before);
@@ -164,7 +177,7 @@ export function applyCaroAction(before: CaroState, actorId: string, intent: Caro
     const next = state.players.find((player) => player.id !== actorId)!;
     state.currentPlayerId = next.id;
     state.turnId = `${state.gameId}:turn:${state.revision + 1}`;
-    state.turnDeadlineAt = now + CARO_TURN_MS;
+    state.turnDeadlineAt = now + state.turnDurationMs;
     state.turnRemainingMs = null;
     state.notice = `${next.nickname} tới lượt.`;
   }
@@ -206,6 +219,7 @@ export function projectCaroGame(state: CaroState, viewerId: string, now: number,
   return {
     gameId: state.gameId,
     revision: state.revision,
+    boardSize: state.boardSize,
     winLength: state.winLength,
     players: structuredClone(state.players),
     board: [...state.board],
@@ -217,7 +231,7 @@ export function projectCaroGame(state: CaroState, viewerId: string, now: number,
     deadlineAt: state.turnDeadlineAt,
     remainingMs: paused ? state.turnRemainingMs : state.turnDeadlineAt === null ? null : Math.max(0, state.turnDeadlineAt - now),
     serverNow: now,
-    turnDurationMs: CARO_TURN_MS,
+    turnDurationMs: state.turnDurationMs,
     winnerId: state.winnerId,
     finishReason: state.finishReason,
     notice: state.notice,

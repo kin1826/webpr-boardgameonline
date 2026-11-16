@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import sirv from 'sirv';
 import {
-  GAME_CATALOG, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema,
+  DEFAULT_GAME_SETTINGS, GAME_CATALOG, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema, roomSettingsSchema,
   roomCreateSchema, roomJoinSchema, visibilitySchema,
 } from '@banban/shared';
 import { loadNoituDictionary, type RuntimeNoituDictionary } from './noitu-dictionary.ts';
@@ -175,7 +175,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Hãy nhập biệt danh và chọn chế độ phòng.' });
       const value = parsed.data;
       idempotentRequest(socket, value.actionId, value, ack, () => {
-        const created = roomService.create(value.nickname, value.visibility, socket.id, value.gameKey, value.avatarId);
+        const created = roomService.create(value.nickname, value.visibility, socket.id, value.gameKey, value.avatarId, value.settings);
         socket.data.activeSession = { roomId: created.room.id, playerId: created.seat.id, generation: created.seat.generation };
         void socket.join('room:' + created.room.id);
         return { ok: true, actionId: value.actionId, credentials: created.credentials, snapshot: roomService.snapshot(created.room, created.seat.id) };
@@ -208,6 +208,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     });
     socket.on('room:ready', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema.extend({ ready: readySchema.shape.ready }).strict(), ack, (room, seat, value) => roomService.ready(room, seat, value.ready)));
     socket.on('room:caro-settings', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, caroSettingsSchema, ack, (room, seat, value) => roomService.setCaroWinLength(room, seat, value.winLength)));
+    socket.on('room:settings', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomSettingsSchema, ack, (room, seat, value) => roomService.updateSettings(room, seat, value.settings)));
     socket.on('room:visibility', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema.extend({ visibility: visibilitySchema.shape.visibility }).strict(), ack, (room, seat, value) => roomService.setVisibility(room, seat, value.visibility)));
     socket.on('room:start', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, roomCommandSchema, ack, (room, seat) => {
       roomService.start(room, seat);
@@ -338,7 +339,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     }
     if (pathname === '/api/games' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key) })))); return;
+      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key), settingsDefaults: DEFAULT_GAME_SETTINGS[game.key], options: { turnSeconds: [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(game.key === 'uno' ? { stacking: [true, false] } : {}), ...(game.key === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}) } })))); return;
     }
     if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
   });

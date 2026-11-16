@@ -28,6 +28,7 @@ export type NoituProposal = {
 export type NoituState = {
   gameId: string;
   revision: number;
+  turnDurationMs: number;
   players: NoituPlayer[];
   order: string[];
   phase: 'turn' | 'voting' | 'finished';
@@ -123,20 +124,23 @@ export function createNoituGame(input: {
   seedWords: readonly string[];
   randomInt: (max: number) => number;
   now: number;
+  turnDurationMs?: number;
 }): NoituState {
   if (input.players.length < NOITU_MIN_PLAYERS || input.players.length > NOITU_MAX_PLAYERS) throw new NoituRuleError('PLAYER_COUNT', 'Nối từ cần từ 2 đến 6 người chơi.');
   if (new Set(input.players.map((player) => player.id)).size !== input.players.length) throw new NoituRuleError('DUPLICATE_PLAYER', 'Danh sách người chơi bị trùng.');
   const seeds = input.seedWords.map(normalizeNoituWord).filter((word): word is string => Boolean(word) && input.dictionary.has(word!) && !input.dictionary.isDenied(word!));
   if (!seeds.length) throw new NoituRuleError('DICTIONARY_NOT_READY', 'Chưa có từ mồi hợp lệ. Nối từ hiện chưa thể bắt đầu.');
   const seedWord = seeds[assertRandomIndex(input.randomInt, seeds.length)]!;
+  const turnDurationMs = input.turnDurationMs ?? NOITU_TURN_MS;
+  if (!Number.isInteger(turnDurationMs) || turnDurationMs < 1_000 || turnDurationMs > 300_000) throw new NoituRuleError('INVALID_TURN_DURATION', 'Thời gian lượt không hợp lệ.');
   const requiredSyllable = seedWord.split(' ')[1]!;
   const currentPlayerId = input.players[assertRandomIndex(input.randomInt, input.players.length)]!.id;
   return {
-    gameId: input.gameId, revision: 0,
+    gameId: input.gameId, revision: 0, turnDurationMs,
     players: input.players.map((player) => ({ ...player, status: 'active' })),
     order: input.players.map((player) => player.id), phase: 'turn', currentPlayerId,
     turnId: `${input.gameId}:turn:0`, seedWord, currentWord: seedWord, requiredSyllable,
-    turnDeadlineAt: input.now + NOITU_TURN_MS, turnRemainingMs: null,
+    turnDeadlineAt: input.now + turnDurationMs, turnRemainingMs: null,
     proposalsThisTurn: 0, rejectedThisTurn: [], usedWords: new Set([seedWord]),
     history: [{ word: seedWord, playerId: null, nickname: 'Từ mồi', kind: 'seed', acceptedByGroup: false }],
     proposal: null, winnerId: null, notice: null, dictionaryVersion: input.dictionary.version,
@@ -184,7 +188,7 @@ function commitAccepted(before: NoituState, word: string, playerId: string, now:
   state.history.push({ word, playerId, nickname: actor.nickname, kind: 'accepted', acceptedByGroup });
   state.currentPlayerId = nextActivePlayer(state, playerId);
   state.phase = 'turn'; state.turnId = `${state.gameId}:turn:${state.revision + 1}`;
-  state.turnDeadlineAt = now + NOITU_TURN_MS; state.turnRemainingMs = null;
+  state.turnDeadlineAt = now + state.turnDurationMs; state.turnRemainingMs = null;
   state.proposalsThisTurn = 0; state.rejectedThisTurn = []; state.proposal = null;
   state.notice = acceptedByGroup ? `“${word}” được nhóm chấp nhận.` : `Đã chấp nhận “${word}”.`;
   state.revision++;
@@ -244,7 +248,7 @@ export function applyNoituAction(before: NoituState, actorId: string, intent: No
     else {
       state.currentPlayerId = nextActivePlayer(state, actorId);
       state.phase = 'turn'; state.turnId = `${state.gameId}:turn:${state.revision + 1}`;
-      state.turnDeadlineAt = now + NOITU_TURN_MS; state.turnRemainingMs = null;
+      state.turnDeadlineAt = now + state.turnDurationMs; state.turnRemainingMs = null;
       state.proposalsThisTurn = 0; state.rejectedThisTurn = []; state.notice = `${activePlayer(state, state.currentPlayerId!).nickname} tiếp tục lượt.`;
     }
     state.revision++;
@@ -283,7 +287,7 @@ export function expireNoituDeadline(before: NoituState, now: number): NoituState
     if (!nextId) throw new Error('Không tìm thấy người chơi còn lại sau khi loại lượt hết giờ.');
     state.currentPlayerId = nextId;
     state.phase = 'turn'; state.turnId = `${state.gameId}:turn:${state.revision + 1}`;
-    state.turnDeadlineAt = now + NOITU_TURN_MS; state.turnRemainingMs = null;
+    state.turnDeadlineAt = now + state.turnDurationMs; state.turnRemainingMs = null;
     state.proposalsThisTurn = 0; state.rejectedThisTurn = [];
     state.notice = `Hết giờ — ${expiredPlayer.nickname} bị loại. ${activePlayer(state, state.currentPlayerId!).nickname} tới lượt.`;
   }
@@ -330,7 +334,7 @@ export function projectNoituGame(state: NoituState, viewerId: string, now: numbe
     currentWord: state.currentWord, requiredSyllable: state.requiredSyllable,
     deadlineAt: state.phase === 'voting' ? proposal?.deadlineAt ?? null : state.turnDeadlineAt,
     remainingMs: state.phase === 'voting' ? proposal?.remainingMs ?? null : state.turnRemainingMs,
-    serverNow: now, turnDurationMs: NOITU_TURN_MS, proposalsThisTurn: state.proposalsThisTurn, proposal: projectedProposal,
+    serverNow: now, turnDurationMs: state.turnDurationMs, proposalsThisTurn: state.proposalsThisTurn, proposal: projectedProposal,
     history: state.history.slice(-NOITU_HISTORY_LIMIT), historyCount: state.history.length,
     usedCount: state.usedWords.size, winnerId: state.winnerId, notice: state.notice,
     dictionaryVersion: state.dictionaryVersion, canSubmit: activeTurn, canGiveUp: activeTurn,

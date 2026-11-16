@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyGameAction, createDeck, createGame, pickDealer, projectGame, type UnoCard, type UnoState } from './index.ts';
+import { applyGameAction, createDeck, createGame, expireUnoDeadline, pickDealer, projectGame, type UnoCard, type UnoState } from './index.ts';
 
 function rng(seed = 7) {
   let value = seed;
@@ -130,4 +130,55 @@ describe('Wild, UNO và projection riêng tư', () => {
     expect(result.phase).toBe('finished'); expect(result.winnerId).toBe('p0');
   });
 });
+
+describe('Thời gian lượt, loại người chơi và cấu hình cộng dồn', () => {
+  it('hết giờ loại người đang lượt, giữ bài để bảo toàn 108 lá và chuyển lượt qua người active tiếp theo', () => {
+    const s = rig([[card('a','red','number',1)],[card('b','blue','number',2)],[card('c','green','number',3)]],card('top','red','number',5));
+    s.turnDurationMs = 15_000; s.turnDeadlineAt = 15_000;
+    const totalBefore = s.drawPile.length + s.discardPile.length + s.players.reduce((sum, p) => sum + p.hand.length, 0);
+    const expired = (awaitlessExpire(s, 15_000));
+    expect(expired.players[0]!.status).toBe('eliminated');
+    expect(expired.currentPlayerId).toBe('p1');
+    expect(expired.phase).toBe('turn');
+    expect(expired.turnDeadlineAt).toBe(30_000);
+    expect(expired.players[0]!.hand).toHaveLength(1);
+    expect(expired.drawPile.length + expired.discardPile.length + expired.players.reduce((sum, p) => sum + p.hand.length, 0)).toBe(totalBefore);
+    expect(projectGame(expired,'p0').allowedActions.playableCardIds).toEqual([]);
+    expect(() => applyGameAction(expired,'p0',{type:'draw'},deterministic)).toThrow();
+  });
+  it('người active cuối cùng thắng khi những người còn lại lần lượt hết giờ, dù vẫn cầm bài', () => {
+    const s = rig([[card('a','red','number',1)],[card('b','blue','number',2)]] ,card('top','red','number',5));
+    s.turnDeadlineAt = 30_000;
+    const expired = awaitlessExpire(s, 30_000);
+    expect(expired.phase).toBe('finished');
+    expect(expired.finishReason).toBe('lastActive');
+    expect(expired.winnerId).toBe('p1');
+    expect(expired.players[0]!.hand).toHaveLength(1);
+    expect(expired.players[1]!.status).toBe('active');
+  });
+  it('hết giờ ở lượt nhận phạt hủy khoản phạt, không tự rút bài và chuyển cho người active kế tiếp', () => {
+    const s = rig([[card('a','red','drawTwo'),card('a2','blue','number',1)],[card('b','red','number',1)],[card('c','blue','number',2)]],card('top','red','number',5));
+    const penalty = applyGameAction(s,'p0',{type:'play',cardId:'a'},deterministic,0);
+    expect(penalty.phase).toBe('penalty');
+    expect(penalty.turnDeadlineAt).toBe(30_000);
+    const expired = awaitlessExpire(penalty,30_000);
+    expect(expired.pendingPenalty).toBeNull();
+    expect(expired.players[1]!.status).toBe('eliminated');
+    expect(expired.players[1]!.hand).toHaveLength(1);
+    expect(expired.currentPlayerId).toBe('p2');
+  });
+  it('tắt stacking thì +2 không thể nối, người bị phạt vẫn có thể nhận phạt', () => {
+    const s = rig([[card('a','red','drawTwo'),card('a2','blue','number',1)],[card('b','red','drawTwo'),card('b2','green','number',1)],[card('c','blue','number',2),card('c2','yellow','number',3)]],card('top','red','number',5),[card('d1','yellow','number',4),card('d2','green','number',7)]);
+    s.stacking = false;
+    const penalty = applyGameAction(s,'p0',{type:'play',cardId:'a'},deterministic,0);
+    expect(projectGame(penalty,'p1').allowedActions.playableCardIds).toEqual([]);
+    const accepted = applyGameAction(penalty,'p1',{type:'acceptPenalty'},deterministic,1_000);
+    expect(accepted.players[1]!.hand).toHaveLength(4);
+    expect(accepted.currentPlayerId).toBe('p2');
+  });
+});
+
+function awaitlessExpire(state: UnoState, now: number) {
+  return expireUnoDeadline(state, now)!;
+}
 

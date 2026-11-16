@@ -5,7 +5,7 @@ let sequence = 0;
 const number = (color: UnoCard['color'], value: number): UnoCard => ({ id: 'n'+sequence++, color, type: 'number', value });
 const action = (type: UnoCard['type'], color: UnoCard['color'] = 'red'): UnoCard => ({ id:'a'+sequence++, type, color });
 function rig(hands: UnoCard[][]): UnoState {
-  return { gameId:'fixture', players:hands.map((hand,i)=>({id:'p'+i,nickname:'P'+i,hand})), drawPile:Array.from({length:40},()=>number('blue',9)), discardPile:[number('red',5)], currentColor:'red',direction:1,currentPlayerId:'p0',dealerId:'p1',phase:'turn',drawnCardId:null,pendingPenalty:null,unoWindow:null,winnerId:null,finishReason:null,revision:0 };
+  return { gameId:'fixture', players:hands.map((hand,i)=>({id:'p'+i,nickname:'P'+i,hand,status:'active' as const,eliminatedReason:null})), drawPile:Array.from({length:40},()=>number('blue',9)), discardPile:[number('red',5)], stacking:true,currentColor:'red',direction:1,currentPlayerId:'p0',dealerId:'p1',turnId:'fixture:turn:0',turnDurationMs:30_000,turnDeadlineAt:30_000,turnRemainingMs:null,phase:'turn',drawnCardId:null,pendingPenalty:null,unoWindow:null,winnerId:null,finishReason:null,revision:0 };
 }
 const play = (s: UnoState, id: string, c: UnoCard, color?: 'red'|'blue'|'green'|'yellow') => applyGameAction(s,id,{type:'play',cardId:c.id,...(color?{color}:{})},random);
 

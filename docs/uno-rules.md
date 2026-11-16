@@ -61,7 +61,7 @@ Bộ 108 lá và nền tảng cách chơi tham khảo [Mattel W2085-0629](https:
 
 - Giữ lá bỏ trên cùng, xáo phần bỏ còn lại để tái tạo chồng rút khi cần; bảo toàn ID/tổng lá.
 - Không đủ bài kể cả tái tạo: kết thúc hòa với lý do rõ ràng, không tạo lá hoặc trao thắng giả; đây là chính sách bế tắc của sản phẩm.
-- Người đánh hợp lệ lá cuối cùng và còn 0 lá trên tay thắng ngay, bất kể lá số hay lá chức năng. Không tích điểm nhiều ván.
+- Người đánh hợp lệ lá cuối cùng và còn 0 lá trên tay thắng ngay, bất kể lá số hay lá chức năng.
 - Lá cuối +2/+4 (kể cả đang cộng dồn) chốt thắng ngay; xóa khoản phạt đang chờ, không bắt người kế nhận bài hoặc cộng tiếp. +4/Wild cuối vẫn phải chọn màu hợp lệ để hoàn tất nước đánh. Không tự rút phạt sau khi ván kết thúc. Đây là luật tùy chỉnh do người dùng chốt.
 - Ván mới có game ID mới; xóa khoản phạt, màu đang chọn, cửa sổ UNO và hành động dở từ ván cũ.
 
@@ -69,6 +69,21 @@ Bộ 108 lá và nền tảng cách chơi tham khảo [Mattel W2085-0629](https:
 
 - Server xác thực mọi intent/phase/lượt/màu/số/ký hiệu; UI disabled không thay thế validation. Hành động lỗi không đổi state/revision.
 - Không gửi tay đối thủ, chồng rút hoặc dữ liệu kín. Chỉ gửi tay riêng, trạng thái công khai và mô tả hành động được phép nếu cần.
-- Lá không hợp lệ tối đi nhưng vẫn đọc được và không bấm được; tới lượt không có lá hợp lệ thì highlight Rút bài. Đang phạt thì dùng Nhận N lá, không highlight nút rút thường.
+- Không gợi ý lá có thể đánh: tất cả lá trên tay cùng độ sáng, không tự nâng/sắp xếp/glow lá hợp lệ và không làm nổi nút rút khi thiếu lá. Người chơi có thể chủ động chọn mọi lá; lá không hợp lệ không gửi intent và UI báo ngắn “Lá này chưa đánh được”. Server vẫn xác thực lại mọi intent.
+- Đối thủ chỉ lộ số lá công khai; có thể vẽ lưng bài tự thiết kế để minh họa số lượng, không gửi/hiện mặt bài hoặc ID lá.
 - Màu giữa bàn có tên/ký hiệu và viền màu. Dialog chọn màu khóa thao tác bên dưới; focus, bàn phím, reduced motion và mobile theo hệ thiết kế hiện có.
 - Luật trong website và bàn xem thử phải phản ánh BB-UNO-1, không còn hành động challenge.
+
+## R09 — Cấu hình lượt và loại người hết giờ (lựa chọn Hội Quậy)
+
+- Mỗi trận chọn thời gian lượt 15/30/45/60 giây; mặc định 30. Đây là timer do server quản lý, không phải luật Mattel. Cùng một lượt giữ nguyên deadline qua rút bài, hô/bắt UNO và animation; Reverse hai người có lượt mới thì nhận `turnId` mới.
+- Khi hết giờ, người đang lượt bị loại khỏi ván, không tự rút/đánh/nhận phạt thay họ. Họ giữ ghế và bài kín để xem ván, nhưng không thể hành động hoặc được phục hồi bằng reconnect trong ván đó.
+- Server bỏ qua người bị loại khi xác định lượt, Reverse/Skip, người nhận phạt và cửa sổ UNO. Nếu người bị loại đang nhận phạt, hủy khoản phạt đó; không chuyển cho ghế tiếp theo. Nếu còn ít nhất hai người active, ván tiếp tục. Người active cuối thắng ván dù còn bài; lý do kết thúc được phân biệt với thắng do hết bài.
+- Người hết giờ trở lại active khi ván mới bắt đầu trong cùng roster; chia bài mới và tạo ID ván/lượt mới. Tay bài bị loại vẫn được tính trong bảo toàn 108 lá cho tới khi ván kết thúc.
+
+## R10 — Điểm và trận nhiều ván (lựa chọn Hội Quậy)
+
+- Mỗi ván thắng được 10 điểm; thua, hòa hoặc ván bị hủy được 0. Không dùng điểm trị giá bài như luật Mattel W2085.
+- Trận có mục tiêu 10–500 điểm theo bội số 10; mặc định 50. Điểm thuộc trận trong phòng và mất khi server khởi động lại.
+- Khi ván kết thúc và chưa ai đạt mục tiêu, server chờ 3 giây rồi bắt đầu ván tiếp theo tự động, không cần ready/start lần nữa. Đạt mục tiêu thì trận dừng; ván cuối và người thắng trận được hiển thị riêng.
+- Rời phòng/kick trong countdown hủy countdown và trận; không trao điểm/thắng trận. Chi tiết lifecycle ở [phòng chơi](./rooms-and-reuse.md).

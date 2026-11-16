@@ -12,13 +12,14 @@ const unoWindow = z.object({ playerId: id, nextPlayerId: id }).strict().nullable
 // Only the requesting player's hand is part of this DTO. Unknown fields fail closed.
 export const unoPublicGameSchema = z.object({
   gameId: id, revision: count, phase: z.enum(['chooseColor', 'turn', 'drawn', 'penalty', 'finished']),
-  players: z.array(z.object({ id, nickname: z.string().min(1).max(24), cardCount: count }).strict()).min(2).max(6),
+  players: z.array(z.object({ id, nickname: z.string().min(1).max(24), cardCount: count, status: z.enum(['active', 'eliminated']), eliminatedReason: z.literal('timeout').nullable() }).strict()).min(2).max(6),
   hand: z.array(card).max(108), topCard: card.nullable(), drawCount: count,
   currentColor: color.nullable(), direction: z.union([z.literal(1), z.literal(-1)]), currentPlayerId: id,
   dealerId: id, drawnCardId: id.nullable(),
   pendingPenalty: z.object({ total: z.number().int().positive(), lastType: z.enum(['drawTwo', 'wildDrawFour']), targetId: id, pendingWinnerId: id.nullable() }).strict().nullable(),
   allowedActions: z.object({ playableCardIds: z.array(id).max(108), canDraw: z.boolean(), canKeep: z.boolean(), canAcceptPenalty: z.boolean(), canChooseColor: z.boolean(), canDeclareUno: z.boolean(), catchUnoPlayerId: id.nullable() }).strict(),
-  unoWindow, winnerId: id.nullable(), finishReason: z.enum(['winner', 'stalemate']).nullable(),
+  unoWindow, winnerId: id.nullable(), finishReason: z.enum(['winner', 'lastActive', 'stalemate']).nullable(),
+  turnId: id, deadlineAt: milliseconds, remainingMs: milliseconds, turnDurationMs: z.number().int().positive(), serverNow: z.number().finite(),
 }).strict() satisfies z.ZodType<UnoPublicGame>;
 
 export const noituPublicGameSchema = z.object({

@@ -1,36 +1,34 @@
 # Tổng kết dự án Hội Quậy
 
-Cập nhật 15/11/2026. Điểm tra cứu chung sau khi gom hồ sơ; chi tiết và bằng chứng tại từng summary.
+Cập nhật 16/11/2026. Phiên bản **Fix 1.1 (`1.1.0`)** đã chuẩn bị trong repo, đủ để CLB chơi thử giới hạn; chưa push/deploy trong đợt kiểm định. Hồ sơ triển khai, kiểm chứng và checklist Terra được gom tại [Fix 1.1](./fix-1.1/summary.md). **Chưa có Terra approval.**
 
 ## Hiện trạng
 
-React/TypeScript/Vite + Node/Socket.IO, state RAM một process. UNO BB-UNO-1 và Nối từ NT-VI-1 chơi 2–6 người; Caro HQ-CARO-1 đúng 2 người. Không tài khoản/database/bot/chat. Tạo phòng public/private, nhập mã hoặc bấm phòng công khai, avatar/tên, share link, host/ready/kick, reconnect đúng ghế và rematch. Link chỉ điền sẵn mã. Giữ HTTP LAN UUID fallback.
+React/TypeScript/Vite + Node/Socket.IO, state RAM một process. UNO BB-UNO-1 và Nối từ NT-VI-1 chơi 2–6 người; Caro HQ-CARO-1 đúng 2 người. Phòng public/private, mã/link mời, avatar/tên, ready/host/kick, reconnect đúng ghế. Không tài khoản/database/bot/chat. Giữ HTTP LAN UUID fallback.
 
-Server quyết định luật/quyền/lượt/kết quả; frontend dùng typed API và snapshot/capabilities. Snapshot ba game kiểm schema runtime, HTTP/Socket.IO dùng chung origin policy; production không cho ngoại lệ LAN/dev. Restart/deploy mất phòng. Một backend/replica; chưa có persistence hoặc scale ngang.
+Server quyết định nghiệp vụ, lượt, deadline, điểm và kết quả; frontend dùng API/snapshot/capabilities đã kiểm schema runtime. Không lộ tay bài đối thủ, chồng rút, từ điển hoặc token. HTTP/Socket.IO chung origin policy; một backend/replica. Restart/deploy mất phòng, phiên và điểm.
 
-## Quyết định sản phẩm
+## Tra cứu
 
-| Phần | Hành vi cuối và hồ sơ |
+| Phần | Đặc tả và hồ sơ |
 |---|---|
-| UNO | [BB-UNO-1](../uno-rules.md): 108 lá/chia 7, bàn trống; cộng +2/+4 theo loại cuối; +4 tự do không challenge; Reverse hai người đi tiếp; lá cuối hợp lệ thắng ngay. [UI bàn](./uno-table-ui/summary.md) |
-| Nối từ | [NT-VI-1](../noitu-rules.md): prefix khóa, dictionary-first/unknown vote đa số, 30/15 giây, 2 proposal/lượt, người cuối active thắng; một active row và suffix bác vỡ tại chỗ. [Tổng kết](./noitu/summary.md) |
-| Caro | [HQ-CARO-1](../caro-rules.md): 15×15, host chọn đúng 4/5/6 có đầu mở; quá mục tiêu không thắng; 30 giây, timeout/resign thua; cùng cặp rematch đổi X/O. [Tổng kết và QA còn mở](./caro/summary.md) |
+| Fix 1.1 | Thắng +10, target mặc định 50; timer cấu hình; tự nối ván sau 3 giây; panel phòng, public directory, sound và chỉnh bố cục. [Tổng kết và QA còn mở](./fix-1.1/summary.md) |
+| UNO | [BB-UNO-1](../uno-rules.md): 108 lá/chia 7, bàn trống; stacking tùy chọn, +4 không challenge; Reverse hai người đi tiếp; lá cuối thắng ngay; hết giờ loại tới ván sau. [Lịch sử UI bàn](./uno-table-ui/summary.md) |
+| Nối từ | [NT-VI-1](../noitu-rules.md): prefix khóa, dictionary-first/unknown vote, vote 15 giây, hai proposal/lượt, active cuối thắng; active row và chữ bác vỡ tại chỗ. [Tổng kết](./noitu/summary.md) |
+| Caro | [HQ-CARO-1](../caro-rules.md): bàn 9/15/19, nối đúng 4/5/6 có đầu mở; chọn ô hai lần, timeout/resign thua, đổi X/O ván sau. [Lịch sử triển khai](./caro/summary.md) |
 | Kiến trúc/phòng | [Backend](./backend-separation/summary.md), [room/session](../rooms-and-reuse.md), [kiến trúc](../architecture.md) |
-| Nhận diện/UI | Hội Quậy/theme đỏ, SVG lá tự vẽ; [branding](./branding/summary.md), [12 avatar](./player-avatars/summary.md), [lobby/share/public join](./lobby-ux/summary.md), [đặc tả UI](../ui-ux.md) |
+| Nhận diện/UI | [Branding](./branding/summary.md), [12 avatar](./player-avatars/summary.md), [lobby/share](./lobby-ux/summary.md), [đặc tả UI](../ui-ux.md) |
 
-UNO motion giữ bay/đập/rung theo tổng phạt có trần, FLIP hand, reduced motion và correlation revision. Animation không quyết định luật. Người dùng từng xác nhận join/sync LAN và UI Nối từ ổn; đó không thay thế Terra QA cho bản mới.
+## Kiểm chứng và giới hạn
 
-## Kiểm chứng mới nhất
+Lần kiểm định Fix 1.1 đạt **169/169 test trong 16 file** khi cho phép loopback, build/typecheck đạt; production HTTP local trả 200 cho health/API/trang chính. Fixture Chrome headless sáu người ở 360/390/768/1440 px không chồng ghế hoặc tràn ngang. Build còn cảnh báo Zod và chunk JS 509.00 kB minified. Chi tiết, lỗi môi trường và giới hạn bằng chứng nằm trong [hồ sơ phiên bản](./fix-1.1/summary.md).
 
-**152/152 test trong 16 file**, typecheck/full build, cài sạch offline, build:client và npm start production đều đạt. Production smoke hai socket độc lập qua ba game, strict DTO và chặn origin dev/LAN đạt. Xem [tổng kết chuẩn bị deploy](./deployment-readiness/summary.md) để biết lệnh, môi trường và giới hạn chính xác.
-
-Lịch sử trước đó: 112 test Nối từ ngày 14/11, backend 124, baseline trước Caro 125, Caro 142 rồi cấu hình 4/5/6 nâng lên 148. Đây là mốc lịch sử, không lấy thay kết quả mới. Các lần headless Nối từ ở 1440/390/360px là fixture UI, không thay thế multiplayer trên thiết bị thật.
+Chưa kiểm chứng UI cuối trên điện thoại thật, cảm giác sound/motion, trận đông người qua hosting, HTTPS/WSS và tải đồng thời; fixture và socket tests không thay thế các kiểm tra này. Những xác nhận join/sync LAN và UI Nối từ của người dùng ở bản trước là bằng chứng lịch sử. Kết quả cũ được giữ tại summary từng tính năng và [kiểm định trước v2](./deployment-readiness/summary.md).
 
 ## Việc còn lại
 
-- Đưa đủ source/config/docs vào commit/push, cấu hình Vercel frontend và backend Node HTTPS/WebSocket một process; hướng dẫn [README](../../README.md), [operations](../operations.md).
-- Terra/device QA độc lập cho ba game, 2–6 người với UNO/Nối từ, 2 người với Caro; keyboard/mobile/IME/motion/dialog, reconnect/reload/kick và URL hosting HTTPS/WSS. [Test plan](../test-plan.md). Browser access host hiện không khả dụng.
-- Chưa load test, vận hành public/reverse proxy thật hoặc kiểm toán bảo mật. Đủ để staging/CLB test có giới hạn, chưa tuyên bố production đã nghiệm thu.
-- Nối từ: bộ 47.877 mục còn thử nghiệm, 200 mẫu semantic review pending, quyền từng nguồn chưa xác minh. Giữ [nguồn/hash/giấy phép](../../data/word-chain/README.md); không coi dữ liệu đã được duyệt để phân phối rộng.
+- Build/deploy frontend và backend cùng phiên bản; cấu hình Node một process, origin và WebSocket theo [README](../../README.md), [operations](../operations.md).
+- Terra/device QA cho ba game: session độc lập, mobile/IME/motion/sound, reconnect/reload/kick, timer/score/countdown. [Checklist Fix 1.1](./fix-1.1/summary.md#checklist-bàn-giao-terra-còn-mở), [test plan](../test-plan.md).
+- Nối từ: 47.877 mục thử nghiệm; 200 mẫu semantic review và quyền từng nguồn chưa xác minh. Giữ [nguồn/hash/giấy phép](../../data/word-chain/README.md); chưa khẳng định bộ từ đã sạch hoặc được duyệt phân phối rộng.
 
-Hồ sơ đã gom theo yêu cầu người dùng; kế hoạch/prompt trung gian Caro và audit deploy cũ được thay bằng summary. Hồ sơ mới vẫn theo [AGENTS.md](../../AGENTS.md). **Chưa có Terra approval.**
+Quy trình tài liệu theo [AGENTS.md](../../AGENTS.md): đặc tả hiện hành ở `docs/`, báo cáo tại `docs/reports/<tính-năng>/`, khi chốt/gom chỉ giữ `summary.md` cùng bằng chứng cần thiết.

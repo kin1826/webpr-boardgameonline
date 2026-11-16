@@ -28,6 +28,13 @@ describe('Nối từ engine — NT-VI-1', () => {
     expect(game.turnDeadlineAt).toBe(30_123);
   });
 
+  it.each([15, 30, 45, 60])('nhận thời gian lượt cấu hình là %i giây, giữ vote 15 giây', (seconds) => {
+    const game = createNoituGame({ gameId: `duration-${seconds}`, players: players.slice(0, 3), dictionary, seedWords: seeds, randomInt: () => 0, now: 500, turnDurationMs: seconds * 1_000 });
+    expect(game.turnDeadlineAt).toBe(500 + seconds * 1_000);
+    const proposal = act(game, game.currentPlayerId!, { type: 'submit', suffix: 'cọc', turnId: game.turnId }, 600);
+    if (proposal.phase === 'voting') expect(proposal.proposal?.deadlineAt).toBe(15_600);
+  });
+
   it('server tự gắn tiếng đầu, từ biết được commit ngay và chuyển lượt/lịch sử', () => {
     const initial = create();
     const next = act(initial, 'a', { type: 'submit', turnId: initial.turnId, suffix: ' NƯỚC ' }, 200);

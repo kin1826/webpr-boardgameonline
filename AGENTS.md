@@ -2,14 +2,14 @@
 
 ## Trạng thái và thẩm quyền
 
-- MVP có UNO (BB-UNO-1), Nối từ (NT-VI-1) và Caro (HQ-CARO-1), React/Vite + Node/Socket.IO, state phòng trong RAM. UNO/Nối từ hỗ trợ 2–6 người; Caro đúng 2 người. Nối từ đã được người dùng xác nhận UI ổn nhưng chưa Terra nghiệm thu; Caro vừa được triển khai và đang chờ QA độc lập. Khi sửa tiếp, cập nhật trạng thái theo kiểm chứng thật trong `docs/reports/project-summary.md` và hồ sơ game tương ứng.
+- MVP có UNO (BB-UNO-1), Nối từ (NT-VI-1) và Caro (HQ-CARO-1), React/Vite + Node/Socket.IO, state phòng trong RAM. UNO/Nối từ hỗ trợ 2–6 người; Caro đúng 2 người. Phiên bản hiện tại Fix 1.1 (1.1.0) đã có kiểm thử tự động/build và fixture bố cục; ba game vẫn chờ Terra/device QA độc lập. Khi sửa tiếp, cập nhật trạng thái theo kiểm chứng thật trong `docs/reports/project-summary.md` và hồ sơ game tương ứng.
 - Nếu người dùng yêu cầu tiếp tục triển khai, đọc hiện trạng tại `docs/reports/project-summary.md` và đặc tả liên quan, rồi triển khai yêu cầu đang được giao; không cần xin duyệt từng điều luật hoặc thay đổi thông thường trong phạm vi đã giao.
 - Cập nhật trạng thái đúng thực tế: phân biệt dự kiến, đã làm, đã build, đã thử bằng trình duyệt và đã kiểm chứng trên thiết bị thật. Không đánh dấu hoàn tất bằng suy đoán.
 - Đọc tài liệu hiện có trước khi sửa; nếu thay quyết định, ghi lý do vào tài liệu liên quan.
 
 ## Quy tắc sản phẩm
 
-- Hiện có UNO và Nối từ 2–6 người, Caro đúng 2 người, tiếng Việt, phòng public/private theo mã, không tài khoản/database/bot/chat. HQ-CARO-1 ở `docs/caro-rules.md` dùng bàn 15×15, host chọn nối đúng 4/5/6 (mặc định 5) với ít nhất một đầu mở; dài hơn mục tiêu không thắng. Engine/UI/realtime Caro đã được triển khai trong `packages/caro/`, `src/caro/`, shared và server. Không tự mở rộng sang Gián điệp.
+- Hiện có UNO và Nối từ 2–6 người, Caro đúng 2 người, tiếng Việt, phòng public/private theo mã, không tài khoản/database/bot/chat. HQ-CARO-1 ở `docs/caro-rules.md` cho host chọn bàn 9×9/15×15/19×19 (mặc định 15×15), nối đúng 4/5/6 (mặc định 5) với ít nhất một đầu mở; dài hơn mục tiêu không thắng. Engine/UI/realtime Caro đã được triển khai trong `packages/caro/`, `src/caro/`, shared và server. Không tự mở rộng sang Gián điệp.
 - Server là nguồn sự thật; client chỉ gửi ý định. Không gửi tay bài đối thủ, thứ tự chồng rút, `usedWords`/bộ từ điển đầy đủ hoặc token.
 - Engine độc lập Socket.IO, React, timer hệ thống và lưu trữ. Random/clock được truyền vào để test.
 - Không coi house rule là luật chính thức. Mọi điều chưa rõ phải ghi nguồn hoặc nhãn lựa chọn triển khai trong `docs/uno-rules.md` trước khi code.

@@ -4,7 +4,8 @@ Bắt đầu ở [tóm tắt dự án](./reports/project-summary.md). Hướng d
 
 | Cần xem | Tài liệu |
 |---|---|
-| Sẵn sàng deploy, sửa mới và kiểm chứng | [Tổng kết deploy](./reports/deployment-readiness/summary.md) |
+| Bản Fix 1.1 hiện tại | [Đánh giá và kiểm chứng 1.1.0](./reports/fix-1.1/summary.md) |
+| Kiểm định trước Fix 1.1 (lịch sử) | [Tổng kết deploy cũ](./reports/deployment-readiness/summary.md) |
 | Phạm vi sản phẩm | [Product spec](./product-spec.md) |
 | Kiến trúc và API | [Architecture](./architecture.md) |
 | Phòng/session/reconnect | [Rooms](./rooms-and-reuse.md) |
