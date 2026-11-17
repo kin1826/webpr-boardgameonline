@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import sirv from 'sirv';
 import {
-  DEFAULT_GAME_SETTINGS, GAME_CATALOG, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema, roomSettingsSchema,
+  DEFAULT_GAME_SETTINGS, GAME_CATALOG, bantauActionSchema, bantauAimSchema, bantauEffectSchema, bantauPlacementSchema, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema, roomSettingsSchema,
   roomCreateSchema, roomJoinSchema, visibilitySchema,
 } from '@banban/shared';
 import { loadNoituDictionary, type RuntimeNoituDictionary } from './noitu-dictionary.ts';
@@ -57,6 +57,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     onNoituDraft: (roomId, draft) => {
       io?.to('room:' + roomId).emit(draft ? 'noitu:draft:changed' : 'noitu:draft:clear', draft ?? { roomId });
     },
+    onBantauEffect: (roomId, effect) => broadcastBantauEffect(roomId, effect),
     onClosed: (payload, socketIds) => {
       for (const socketId of socketIds) {
         const client = io?.sockets.sockets.get(socketId);
@@ -72,6 +73,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
   const requestCache = new Map<string, Cached>();
   const limits = new Map<string, { start: number; count: number }>();
   const eventLimits = new Map<string, { start: number; count: number }>();
+  const bantauActionLimits = new Map<string, { start: number; count: number }>();
 
   function failure(error: unknown) {
     if (error instanceof RoomError) return { ok: false, code: error.code, message: error.message };
@@ -99,6 +101,17 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
         const client = io.sockets.sockets.get(seat.socketId);
         if (client) client.emit('room:snapshot', roomService.snapshot(room, seat.id));
       }
+    }
+  }
+  function broadcastBantauEffect(roomId: string, effect: unknown) {
+    const parsed = bantauEffectSchema.safeParse({ ...(effect as Record<string, unknown>), roomId });
+    if (!parsed.success) return;
+    let room;
+    try { room = roomService.getRoom(roomId); } catch { return; }
+    for (const seat of room.players.values()) {
+      if (!seat.online || !seat.socketId) continue;
+      const client = io.sockets.sockets.get(seat.socketId) as ClientSocket | undefined;
+      if (client?.data.activeSession?.roomId === roomId && client.data.activeSession.playerId === seat.id && client.data.activeSession.generation === seat.generation) client.emit('bantau:effect', parsed.data);
     }
   }
   function cacheResult(cache: Map<string, Cached>, key: string, fingerprint: string, response: Record<string, unknown>, ack: Ack) {
@@ -134,7 +147,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
         return ack(previous.response);
       }
       if (room.revision !== payload.expectedRevision) throw new RoomError('STALE_REVISION', 'Trạng thái phòng vừa đổi. Bảng đang được cập nhật.');
-      const result = operation(room, seat, payload) as { gameEffect?: unknown } | undefined;
+      const result = operation(room, seat, payload) as { gameEffect?: unknown; bantauEffect?: unknown } | undefined;
       const response = { ok: true, actionId: payload.actionId, snapshot: roomService.snapshot(room, seat.id) };
       broadcast(room.id);
       if (result?.gameEffect) {
@@ -144,7 +157,35 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
           io.sockets.sockets.get(member.socketId)?.emit('game:effect', parsedEffect.data);
         }
       }
+      if (result?.bantauEffect) broadcastBantauEffect(room.id, result.bantauEffect);
       cacheResult(actionCache, key, fingerprint, response, ack);
+    } catch (error) { ack(failure(error)); }
+  }
+
+  function allowBantauAction(playerId: string, ack: Ack) {
+    const now = Date.now(); const bucket = bantauActionLimits.get(playerId) ?? { start: now, count: 0 };
+    if (now - bucket.start >= 1000) { bucket.start = now; bucket.count = 0; }
+    bucket.count++; bantauActionLimits.set(playerId, bucket);
+    if (bucket.count <= 8) return true;
+    ack({ ok: false, code: 'RATE_LIMITED', message: 'Bạn đang thao tác quá nhanh. Hãy chờ một chút.' });
+    return false;
+  }
+  function privateBantauCommand(socket: ClientSocket, raw: unknown, schema: { safeParse(value: unknown): { success: boolean; data?: any } }, ack: Ack, operation: (room: ReturnType<RoomService['getRoom']>, seat: ReturnType<RoomService['getSeat']>, payload: any) => Record<string, unknown>) {
+    if (!allowEvent(socket.id, ack)) return;
+    const parsed = schema.safeParse(raw);
+    if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Dữ liệu thao tác Bắn tàu chưa hợp lệ.' });
+    try {
+      const { session, room, seat } = current(socket, parsed.data.roomId);
+      if (!allowBantauAction(seat.id, ack)) return;
+      const key = session.playerId + ':' + parsed.data.actionId;
+      const fingerprint = JSON.stringify(parsed.data);
+      const previous = actionCache.get(key);
+      if (previous && previous.expiresAt > Date.now()) {
+        if (previous.fingerprint !== fingerprint) return ack({ ok: false, code: 'ACTION_ID_REUSED', message: 'Mã thao tác đã được dùng cho nội dung khác.' });
+        return ack(previous.response);
+      }
+      const response = operation(room, seat, parsed.data);
+      cacheResult(actionCache, key, fingerprint, { ok: true, actionId: parsed.data.actionId, ...response }, ack);
     } catch (error) { ack(failure(error)); }
   }
 
@@ -262,6 +303,27 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       if (room.gameKey !== 'caro' || !room.caroGame || room.caroGame.gameId !== value.gameId) throw new RoomError('STALE_GAME', 'Ván đã thay đổi. Hãy chờ bàn chơi cập nhật.');
       roomService.caroAction(room, seat, value.expectedRevision, value);
     }));
+    socket.on('bantau:placement', (raw: unknown, ack: Ack = () => {}) => privateBantauCommand(socket, raw, bantauPlacementSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'bantau') throw new RoomError('WRONG_GAME', 'Lệnh xếp tàu chỉ dùng trong phòng Bắn tàu.');
+      const { actionId: _actionId, roomId: _roomId, gameId, setupId, expectedFleetRevision, ...intent } = value;
+      void _actionId; void _roomId;
+      const snapshot = roomService.bantauPlacement(room, seat, gameId, setupId, expectedFleetRevision, intent);
+      return { snapshot };
+    }));
+    socket.on('bantau:aim', (raw: unknown, ack: Ack = () => {}) => privateBantauCommand(socket, raw, bantauAimSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'bantau') throw new RoomError('WRONG_GAME', 'Lệnh nhắm chỉ dùng trong phòng Bắn tàu.');
+      const { actionId: _actionId, roomId: _roomId, gameId, turnId, sequence, cell } = value;
+      void _actionId; void _roomId;
+      const aim = roomService.bantauAim(room, seat, gameId, turnId, sequence, cell);
+      return { aim };
+    }));
+    socket.on('bantau:action', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, bantauActionSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'bantau') throw new RoomError('WRONG_GAME', 'Lệnh này chỉ dùng trong phòng Bắn tàu.');
+      const { actionId: _actionId, roomId: _roomId, expectedRevision, ...action } = value;
+      void _actionId; void _roomId;
+      const effect = roomService.bantauAction(room, seat, expectedRevision, action);
+      return effect ? { bantauEffect: effect } : undefined;
+    }));
     socket.on('noitu:draft', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
       const parsed = noituDraftSchema.safeParse(raw);
@@ -287,6 +349,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       eventLimits.delete(socket.id);
       const session = socket.data.activeSession;
       if (!session) return;
+      bantauActionLimits.delete(session.playerId);
       roomService.disconnect(session.roomId, session.playerId, socket.id);
       broadcast(session.roomId);
     });
@@ -339,7 +402,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     }
     if (pathname === '/api/games' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key), settingsDefaults: DEFAULT_GAME_SETTINGS[game.key], options: { turnSeconds: [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(game.key === 'uno' ? { stacking: [true, false] } : {}), ...(game.key === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}) } })))); return;
+      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key), settingsDefaults: DEFAULT_GAME_SETTINGS[game.key], options: { turnSeconds: [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(game.key === 'uno' ? { stacking: [true, false] } : {}), ...(game.key === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}), ...(game.key === 'bantau' ? { boardSizes: [8, 10, 12], shipCounts: [3, 4, 5], hitContinues: [true, false], allowTouch: [true, false] } : {}) } })))); return;
     }
     if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
   });

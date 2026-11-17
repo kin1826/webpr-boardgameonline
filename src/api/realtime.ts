@@ -1,7 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import {
-  gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
-  type GameEffectEvent, type GameKey, type NoituDraftNotice, type NoituDraftPayload,
+  bantauAimStateSchema, bantauEffectSchema, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
+  type BantauActionPayload, type BantauAimPayload, type BantauEffectEvent, type BantauPlacementPayload, type BantauPublicGame, type GameEffectEvent, type GameKey, type NoituDraftNotice, type NoituDraftPayload,
   type CaroActionPayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
 } from '@banban/shared';
 import { createActionId } from '../action-id';
@@ -15,6 +15,7 @@ export type ApiReply = {
   snapshot?: RoomSnapshot;
   credentials?: SessionCredentials;
   sequence?: number;
+  aim?: BantauPublicGame['ownAim'];
 };
 
 type ActionEnvelopeKeys = 'actionId' | 'roomId' | 'expectedRevision' | 'gameId';
@@ -22,6 +23,12 @@ type IntentWithoutEnvelope<T> = T extends Record<ActionEnvelopeKeys, unknown> ? 
 export type UnoActionIntent = IntentWithoutEnvelope<GameActionPayload>;
 export type NoituActionIntent = IntentWithoutEnvelope<NoituActionPayload>;
 export type CaroActionIntent = IntentWithoutEnvelope<CaroActionPayload>;
+type PrivateEnvelopeKeys = 'actionId' | 'roomId';
+type IntentWithoutPrivateEnvelope<T> = T extends Record<PrivateEnvelopeKeys, unknown> ? Omit<T, PrivateEnvelopeKeys> : never;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type BantauPlacementIntent = DistributiveOmit<BantauPlacementPayload, 'actionId' | 'roomId'>;
+export type BantauAimIntent = IntentWithoutPrivateEnvelope<BantauAimPayload>;
+export type BantauActionIntent = DistributiveOmit<BantauActionPayload, 'actionId' | 'roomId' | 'expectedRevision'>;
 
 export type RoomCommandInput =
   | { event: 'room:start' | 'room:rematch' | 'room:leave' }
@@ -40,6 +47,7 @@ export type RealtimeHandlers = {
   onDraftChanged?: (draft: NoituDraftNotice) => void;
   onDraftClear?: (payload: { roomId: string }) => void;
   onGameEffect?: (event: GameEffectEvent) => void;
+  onBantauEffect?: (event: BantauEffectEvent) => void;
   onSessionRevoked?: (payload: { message?: string }) => void;
 };
 
@@ -82,6 +90,10 @@ export class RealtimeApiClient {
       const parsed = gameEffectSchema.safeParse(raw);
       if (parsed.success) handlers.onGameEffect?.(parsed.data);
     };
+    const onBantauEffect = (raw: unknown) => {
+      const parsed = bantauEffectSchema.safeParse(raw);
+      if (parsed.success) handlers.onBantauEffect?.(parsed.data);
+    };
     const onSessionRevoked = (raw: unknown) => {
       if (!raw || typeof raw !== 'object') return handlers.onSessionRevoked?.({});
       const message = 'message' in raw && typeof raw.message === 'string' ? raw.message : undefined;
@@ -96,6 +108,7 @@ export class RealtimeApiClient {
     this.socket.on('noitu:draft:changed', onDraftChanged);
     this.socket.on('noitu:draft:clear', onDraftClear);
     this.socket.on('game:effect', onGameEffect);
+    this.socket.on('bantau:effect', onBantauEffect);
     this.socket.on('session:revoked', onSessionRevoked);
 
     return () => {
@@ -107,6 +120,7 @@ export class RealtimeApiClient {
       this.socket.off('noitu:draft:changed', onDraftChanged);
       this.socket.off('noitu:draft:clear', onDraftClear);
       this.socket.off('game:effect', onGameEffect);
+      this.socket.off('bantau:effect', onBantauEffect);
       this.socket.off('session:revoked', onSessionRevoked);
     };
   }
@@ -140,6 +154,18 @@ export class RealtimeApiClient {
     return this.emitAck('caro:action', { actionId: createActionId(), roomId, expectedRevision, gameId, ...intent });
   }
 
+  bantauPlacement(roomId: string, intent: BantauPlacementIntent): Promise<ApiReply> {
+    return this.emitAck('bantau:placement', { actionId: createActionId(), roomId, ...intent });
+  }
+
+  bantauAim(roomId: string, intent: BantauAimIntent): Promise<ApiReply> {
+    return this.emitAck('bantau:aim', { actionId: createActionId(), roomId, ...intent });
+  }
+
+  bantauAction(roomId: string, expectedRevision: number, intent: BantauActionIntent): Promise<ApiReply> {
+    return this.emitAck('bantau:action', { actionId: createActionId(), roomId, expectedRevision, ...intent });
+  }
+
   sendNoituDraft(payload: NoituDraftPayload): void {
     if (this.socket.connected) this.socket.emit('noitu:draft', payload);
   }
@@ -166,13 +192,19 @@ export class RealtimeApiClient {
           if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về phiên phòng không hợp lệ.' });
           credentials = parsed.data;
         }
+        let aim: ApiReply['aim'];
+        if ('aim' in value) {
+          const parsed = bantauAimStateSchema.safeParse(value.aim);
+          if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về mục tiêu Bắn tàu không hợp lệ.' });
+          aim = parsed.data;
+        }
         resolve({
           ok,
           ...(typeof value.code === 'string' ? { code: value.code } : {}),
           ...(typeof value.message === 'string' ? { message: value.message } : {}),
           ...(typeof value.actionId === 'string' ? { actionId: value.actionId } : {}),
           ...(typeof value.sequence === 'number' ? { sequence: value.sequence } : {}),
-          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}),
+          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}), ...('aim' in value ? { aim } : {}),
         });
       });
     });

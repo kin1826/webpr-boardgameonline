@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="64" viewBox="0 0 512 64" fill="none">
+  <g stroke="#b9edf2" stroke-width="3" stroke-linecap="round" fill="#69c9da">
+    <g transform="translate(0)"><circle cx="32" cy="39" r="4"/><path d="M32 35c-5-3-7-9-6-14 4 3 7 7 7 12 2-5 5-8 10-10-1 6-4 11-10 13M20 42q12 8 24 0"/></g>
+    <g transform="translate(64)"><circle cx="32" cy="40" r="7"/><path d="M32 32c-7-5-10-14-7-21 6 4 10 10 10 18 4-8 10-12 18-12-2 9-8 16-17 19M14 39l-6-7m44 7 8-9M18 47q14 9 28 0"/></g>
+    <g transform="translate(128)"><circle cx="32" cy="40" r="10"/><path d="M32 28c-9-7-12-17-7-25 8 6 12 13 12 22 5-10 12-15 21-15-2 11-10 20-21 23M12 35l-9-8m49 9 10-10M14 50q18 10 36 0"/></g>
+    <g transform="translate(192)"><circle cx="32" cy="42" r="12"/><path d="M32 27c-8-8-9-18-4-24 7 7 9 13 8 22 7-10 15-14 23-12-5 11-12 18-24 19M11 38 1 29m53 10 10-12M11 53q21 10 42 0"/></g>
+    <g transform="translate(256)"><circle cx="32" cy="43" r="10"/><path d="M32 31c-6-9-4-18 2-23 5 8 5 14 2 22 8-8 16-10 23-6-6 9-14 14-25 14M12 42 3 36m49 5 10-8M15 53q17 8 34 0"/></g>
+    <g transform="translate(320)"><circle cx="32" cy="45" r="8"/><path d="M32 35c-4-8 0-16 6-19 3 7 2 12-2 19 8-5 14-5 20 0-7 7-14 10-24 7M14 43l-8-5m47 6 8-8M19 53q13 6 26 0"/></g>
+    <g transform="translate(384)"><circle cx="32" cy="47" r="6"/><path d="M31 39c-2-7 2-12 7-14 2 6 0 10-3 14 6-3 11-2 15 2-6 4-12 5-19 3M17 46l-6-4m42 5 6-6M22 53q10 4 20 0"/></g>
+    <g transform="translate(448)"><circle cx="32" cy="49" r="4"/><path d="M32 43q-1-7 5-9 2 5-2 9 5-2 9 2-5 3-11 2M21 49l-5-3m34 3 5-4M25 54q7 3 14 0"/></g>
+  </g>
+</svg>

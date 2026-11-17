@@ -271,6 +271,104 @@ describe('Phòng Caro HQ-CARO-1', () => {
   });
 });
 
+describe('Phòng Bắn tàu HQ-BANTAU-1', () => {
+  function prepare(service: RoomService) {
+    const host = service.create('Chủ tàu', 'private', 'h', 'bantau', 0, {
+      gameKey: 'bantau', turnSeconds: 30, targetScore: 50, boardSize: 8, shipCount: 3, hitContinues: true, allowTouch: false,
+    });
+    const guest = service.join(host.room.code, 'Khách tàu', 'g');
+    service.ready(host.room, guest.seat, true);
+    service.start(host.room, host.seat);
+    for (const player of host.room.bantauGame!.players) {
+      const anchors = [{ row: 0, col: 0 }, { row: 2, col: 0 }, { row: 4, col: 0 }];
+      player.fleet = player.fleet.map((ship, index) => ({ ...ship, anchor: anchors[index]!, orientation: 'horizontal' }));
+    }
+    return { host, guest, state: host.room.bantauGame! };
+  }
+  function lockBoth(service: RoomService, room: ReturnType<RoomService['getRoom']>, host: ReturnType<RoomService['create']>, guest: ReturnType<RoomService['join']>) {
+    let state = room.bantauGame!;
+    service.bantauAction(room, host.seat, room.revision, { actionId: 'lock-host-' + state.gameId, roomId: room.id, expectedRevision: room.revision, gameId: state.gameId, type: 'lockFleet', setupId: state.setupId, expectedFleetRevision: 0 });
+    state = room.bantauGame!;
+    service.bantauAction(room, guest.seat, room.revision, { actionId: 'lock-guest-' + state.gameId, roomId: room.id, expectedRevision: room.revision, gameId: state.gameId, type: 'lockFleet', setupId: state.setupId, expectedFleetRevision: 0 });
+    return room.bantauGame!;
+  }
+
+  it('chỉ cho hai người, tách đội hình theo ghế và aim riêng không tăng revision công khai', () => {
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    const { host, guest, state: initial } = prepare(service);
+    expect(service.gameAvailable('bantau')).toBe(true);
+    expect(() => service.join(host.room.code, 'Người thứ ba', 'third')).toThrowError(expect.objectContaining({ code: 'ROOM_IN_PROGRESS' }));
+    const hostView = service.snapshot(host.room, host.seat.id);
+    const guestView = service.snapshot(host.room, guest.seat.id);
+    expect(hostView.gameKey).toBe('bantau');
+    expect((hostView.game as any)?.ownFleet.ships.every((ship: any) => ship.id.startsWith(host.seat.id + ':'))).toBe(true);
+    expect((guestView.game as any)?.ownFleet.ships.every((ship: any) => ship.id.startsWith(guest.seat.id + ':'))).toBe(true);
+    expect(JSON.stringify(hostView)).not.toContain(initial.players[1].fleet[0]!.id);
+    expect((hostView.game as any)?.targetBoard.every((cell: string) => cell === 'unknown')).toBe(true);
+    const state = lockBoth(service, host.room, host, guest);
+    const revision = host.room.revision;
+    const actor = state.currentPlayerId ?? state.players[0].id;
+    const aim = service.bantauAim(host.room, service.getSeat(host.room, actor), state.gameId, state.turnId, 1, { row: 7, col: 7 });
+    expect(aim).toMatchObject({ turnId: state.turnId, sequence: 1, cell: { row: 7, col: 7 } });
+    expect(host.room.revision).toBe(revision);
+    const ownViewer = service.snapshot(host.room, actor).game as any;
+    const otherViewer = service.snapshot(host.room, actor === host.seat.id ? guest.seat.id : host.seat.id).game as any;
+    expect(ownViewer?.ownAim?.sequence).toBe(1); expect(otherViewer?.ownAim).toBeNull();
+  });
+
+  it('timeout bắn aim đã xác nhận; ngắt mạng trong resolving giữ lại thời gian', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const effects: unknown[] = [];
+    const service = new RoomService({ randomInt: () => 0, onBantauEffect: (_roomId, event) => effects.push(event) }); services.push(service);
+    const { host, guest } = prepare(service);
+    const state = lockBoth(service, host.room, host, guest);
+    const actorId = state.currentPlayerId!;
+    service.bantauAim(host.room, service.getSeat(host.room, actorId), state.gameId, state.turnId, 1, { row: 7, col: 7 });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(host.room.bantauGame?.phase).toBe('resolving');
+    expect(effects).toHaveLength(1);
+    expect(effects[0]).toMatchObject({ source: 'timeout', row: 7, col: 7 });
+    const resolving = host.room.bantauGame!;
+    expect((service.snapshot(host.room, actorId).game as any)?.targetBoard[63]).toBe('unknown');
+
+    const disconnected = actorId === host.seat.id ? host.seat : guest.seat;
+    const credentials = actorId === host.seat.id ? host.credentials : guest.credentials;
+    service.disconnect(host.room.id, disconnected.id, disconnected.socketId!);
+    const remaining = host.room.bantauGame!.resolveRemainingMs!;
+    await vi.advanceTimersByTimeAsync(10_000);
+    service.resume(host.room.id, disconnected.id, credentials.token, 'reconnected');
+    expect(host.room.bantauGame?.phase).toBe('resolving');
+    expect(host.room.bantauGame?.resolveDeadlineAt).toBe(Date.now() + remaining);
+    await vi.advanceTimersByTimeAsync(remaining);
+    expect(host.room.bantauGame?.phase).toBe('turn');
+    expect(host.room.bantauGame?.currentPlayerId).not.toBe(actorId);
+    expect(resolving.gameId).toBe(host.room.bantauGame?.gameId);
+  });
+
+  it('cộng điểm đúng một lần và tự mở vòng xếp tàu mới sau ba giây', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-16T12:00:00Z'));
+    const service = new RoomService({ randomInt: () => 0 }); services.push(service);
+    const { host, guest } = prepare(service);
+    const first = lockBoth(service, host.room, host, guest);
+    const firstShooter = first.currentPlayerId!;
+    const expectedRevision = host.room.revision;
+    service.bantauAction(host.room, service.getSeat(host.room, firstShooter), expectedRevision, {
+      actionId: 'resign-' + first.gameId, roomId: host.room.id, expectedRevision, gameId: first.gameId, type: 'resign',
+    });
+    const winner = firstShooter === host.seat.id ? guest.seat.id : host.seat.id;
+    expect(host.room.match?.scores.get(winner)).toBe(10);
+    expect(host.room.match?.status).toBe('intermission');
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(host.room.bantauGame?.gameId).toBe(first.gameId);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(host.room.match?.roundNumber).toBe(2);
+    expect(host.room.bantauGame?.phase).toBe('setup');
+    expect(host.room.bantauGame?.gameId).not.toBe(first.gameId);
+    expect(host.room.bantauGame?.firstPlayerId).not.toBe(firstShooter);
+    expect(host.room.phase).toBe('playing');
+  });
+});
+
 describe('Trận nhiều ván, cài đặt và countdown server', () => {
   it('đổi settings chỉ qua host, reset ready và mang cấu hình vào snapshot/sảnh public', () => {
     const service = create();
