@@ -5,6 +5,7 @@ Bắt đầu ở [tóm tắt dự án](./reports/project-summary.md). Hướng d
 | Cần xem | Tài liệu |
 |---|---|
 | Bản Fix 1.1 hiện tại | [Đánh giá và kiểm chứng 1.1.0](./reports/fix-1.1/summary.md) |
+| Bắn tàu HQ-BANTAU-1 | [Luật hiện hành](./bantau-rules.md), [kế hoạch](./reports/bantau/01-plan.md), [báo cáo triển khai](./reports/bantau/06-implementation.md), [checklist QA/Terra](./reports/bantau/07-qa.md), [hoàn thiện UI/asset chờ duyệt](./reports/bantau/08-polish-plan.md) |
 | Kiểm định trước Fix 1.1 (lịch sử) | [Tổng kết deploy cũ](./reports/deployment-readiness/summary.md) |
 | Phạm vi sản phẩm | [Product spec](./product-spec.md) |
 | Kiến trúc và API | [Architecture](./architecture.md) |

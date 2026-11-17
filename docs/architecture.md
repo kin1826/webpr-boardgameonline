@@ -2,7 +2,7 @@
 
 > BB-UNO-1 (`uno-rules.md`) đã được triển khai. Engine dùng predicate chung cho server validation và `allowedActions` trong projection riêng từng người. Khoản phạt có tổng, loại cuối và người nhận. Đánh lá cuối hợp lệ chốt thắng ngay và xóa phạt đang chờ. Mọi thay đổi async/đóng phòng phát snapshot/event lifecycle; RAM vẫn mất khi process dừng.
 
-Trạng thái: UNO + Nối từ + Caro, một backend process, state trong RAM; Nối từ và Caro chờ Terra nghiệm thu độc lập.
+Trạng thái: UNO + Nối từ + Caro + Bắn tàu, một backend process, state trong RAM; Bắn tàu chờ Terra nghiệm thu độc lập.
 
 ## Các vùng code
 
@@ -15,10 +15,12 @@ Trạng thái: UNO + Nối từ + Caro, một backend process, state trong RAM; 
 | `src/api/client.ts` | Ghép HTTP và realtime client dùng chung một cấu hình backend. |
 | `src/components/` | Chỉnh biệt danh và chia sẻ link/mã; các thành phần Lucian #033 và #008 đã được port. |
 | `src/styles/` | Token giao diện, thành phần và layout responsive/reduced motion. |
-| `packages/shared/src/index.ts` | Catalog UNO/Nối từ/Caro, `RoomSnapshot` discriminated union và Zod schema runtime cho nickname, mã, phiên, room/game action/draft, cấu hình và kết quả trận. |
+| `packages/shared/src/index.ts` | Catalog UNO/Nối từ/Caro/Bắn tàu, `RoomSnapshot` discriminated union và Zod schema runtime cho nickname, mã, phiên, room/game action/draft, cấu hình và kết quả trận. |
 | `packages/uno/src/index.ts` | Deck, setup, state, luật, validation, transition và private projection; không nhập React/Socket.IO. |
 | `packages/noitu/src/index.ts` | Engine NT-VI-1 thuần TypeScript, dictionary interface, lượt/proposal/vote/timer state và public projection. |
 | `packages/caro/src/index.ts` | Engine HQ-CARO-1 thuần TypeScript: bàn 9/15/19, lượt, đúng mục tiêu 4/5/6 còn đầu mở, timeout/resign, tạm dừng và projection/capabilities. |
+| `packages/bantau/src/index.ts` | Engine HQ-BANTAU-1 thuần TypeScript: preset/sinh đội hình, placement, aim/fire, timeout, hit/miss/sunk, pause/resume và projection riêng. |
+| `src/bantau/BantauTable.tsx` | Bàn/xếp tàu lấy snapshot, capabilities và ACK từ API; không tự quyết định vị trí hợp lệ, bắn hoặc kết quả. |
 | `src/caro/CaroTable.tsx` | Bàn Caro lấy snapshot/capabilities từ API; không chứa luật hoặc tự quyết định kết quả. |
 | `server/src/rooms.ts` | Room/session/match trong RAM, host, public/private, ready, start, kick/leave, reconnect, timer, chấm điểm, intermission/countdown và cleanup. |
 | `server/src/index.ts` | HTTP/static, Socket.IO, parse payload, action ID/revision, quyền hiện hành, broadcast snapshot theo người nhận và rate limit. |
@@ -31,7 +33,7 @@ Khi thêm trò mới, dùng `gameKey` và catalog hiện tại làm điểm nố
 2. Mỗi room có `roomId`, `code`, host, visibility, revision và các ghế. Phòng công khai được lọc ở server; private không nằm trong `/api/rooms`.
 3. Server bắt đầu trận đầu khi có đủ người, tất cả online và mọi khách sẵn sàng. Host xác nhận bằng `room:start`; các ván trong cùng trận sau đó tự nối từ countdown do server quản lý.
 4. Component giao tiếp qua API client. Client chỉ gửi intent. Server xác thực phiên/socket hiện tại, mã hành động, revision, phase, quyền, lượt và luật; sau đó gửi `room:snapshot` riêng cho từng người.
-5. UNO snapshot gồm tay của chính người xem; đối thủ chỉ có tên và số lá. Nối từ snapshot chỉ gửi mạch/lịch sử công khai và quyền hành động; không gửi `usedWords`, nguyên bộ từ điển hoặc token. Caro snapshot công khai bàn và nước đi nhưng chỉ trả capabilities của người xem; schema được kiểm tra runtime ở ranh giới API.
+5. UNO snapshot gồm tay của chính người xem; đối thủ chỉ có tên và số lá. Nối từ snapshot chỉ gửi mạch/lịch sử công khai và quyền hành động; không gửi `usedWords`, nguyên bộ từ điển hoặc token. Caro snapshot công khai bàn và nước đi nhưng chỉ trả capabilities của người xem. Bắn tàu snapshot chỉ gồm fleet của người xem, trạng thái biển nhận được và aim riêng của chính người bắn; không có fleet ẩn, lịch sử miss hay aim đối thủ. Schema được kiểm tra runtime ở ranh giới API.
 
 Sau mỗi hành động game hợp lệ, server phát thêm `game:effect` sau snapshot tương ứng. Payload công khai có eventId theo game revision, room/game revision, action, người chơi liên quan và mặt lá đã đánh; lượt rút chỉ có số lượng, không có ID/mặt bài. Client chỉ phát animation khi snapshot hiện tại khớp chính xác cả hai revision. Duplicate action không phát event lần hai; event cũ bị bỏ. Event chỉ điều khiển trình bày, không thay đổi engine hoặc quyết định nước đi.
 
@@ -39,7 +41,7 @@ Các event gồm `room:create`, `room:join`, `session:resume`, `room:ready`, `ro
 
 Nối từ dùng `noitu:action` cho submit/giveUp/vote và `noitu:draft` cho phần nhập tạm. Draft được xác thực theo socket/room/game/turn, sequence và rate limit; chỉ gửi trong room, không tăng revision và bị xóa khi đổi pha/lượt, pause hoặc cleanup. Voter, quorum, dictionary membership và deadline đều do engine/server quyết định.
 
-Caro dùng `caro:action` cho `place(row, col, turnId)` và `resign`. `RoomService` sở hữu timer cấu hình, deadline race, pause/resume và cleanup theo vòng đời phòng; engine nhận `now`, boardSize/winLength và RNG qua tham số. Action envelope có `actionId`, `roomId`, `gameId`, `expectedRevision`; server kiểm tra socket generation, revision, game, ghế, lượt và tọa độ theo board trước khi chuyển state. Mọi game availability và preset cấu hình được công bố qua `/api/games`; Caro availability không phụ thuộc từ điển.
+Caro dùng `caro:action` cho `place(row, col, turnId)` và `resign`. `RoomService` sở hữu timer cấu hình, deadline race, pause/resume và cleanup theo vòng đời phòng; engine nhận `now`, boardSize/winLength và RNG qua tham số. Action envelope có `actionId`, `roomId`, `gameId`, `expectedRevision`; server kiểm tra socket generation, revision, game, ghế, lượt và tọa độ theo board trước khi chuyển state. Bắn tàu dùng `bantau:placement` cho từng nước xếp tàu, `bantau:aim` cho nhắm, `bantau:action` cho khóa đội hình/bắn/chịu thua và `bantau:effect` cho hiệu ứng công khai; server giữ setup/turn/resolving timers, sequence aim theo người chơi, kiểm tra fleet, phát fire result riêng và settle điểm/trận đúng một lần. Availability và preset cấu hình mọi game được công bố qua `/api/games`.
 
 ## UNO
 
@@ -56,6 +58,10 @@ Snapshot Nối từ có gameId/turnId, currentWord/requiredSyllable, deadline/re
 ## Caro
 
 `packages/caro` là engine thuần cho HQ-CARO-1. `RoomService` tạo game đúng hai ghế, bốc X ngẫu nhiên ban đầu, giữ deadline theo server, pause 90 giây reconnect và luân phiên X/O qua các ván. Snapshot gửi board theo size 9/15/19, lượt, nước cuối, các dãy thắng, kết quả và capabilities; backend xác thực lại mỗi nước. Hai lần click/chạm chọn→xác nhận chỉ là UX, state vẫn do server quyết định. Luật đầy đủ và các quyết định được ghi tại [caro-rules.md](caro-rules.md).
+
+## Bắn tàu
+
+`packages/bantau` là engine thuần HQ-BANTAU-1, nhận RNG/clock qua tham số. Mỗi người có fleet ẩn; server xác thực cả hai lần nhắm/bắn, resolving 900 ms, timeout bắn aim ACK hoặc ô random, điểm và kết thúc ván. Miss không vào state/projection để tránh lưu tọa độ đã trượt. Reconnect khôi phục fleet/aim riêng từ RAM trong cùng process. Luật và lựa chọn sản phẩm nằm ở [bantau-rules.md](bantau-rules.md).
 
 ## Phiên và vòng đời
 

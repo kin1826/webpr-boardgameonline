@@ -6,7 +6,7 @@ import { parseRoomSnapshot } from '@banban/shared';
 import type { UnoCard } from '@banban/uno';
 import type { NoituDictionary } from '@banban/noitu';
 
-type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; credentials?: { roomId: string; roomCode: string; playerId: string; token: string } };
+type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; credentials?: { roomId: string; roomCode: string; playerId: string; token: string }; aim?: any };
 function emitAck(socket: Socket, event: string, payload?: unknown): Promise<Result> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('ACK timeout: ' + event)), 3000);
@@ -399,3 +399,80 @@ it('hai socket chơi Caro qua API, chặn game chéo, thắng, idempotency và r
   expect(startedAgain.snapshot!.game.players.find((player: any) => player.id === xPlayerId).symbol).toBe('O');
   expect(startedAgain.snapshot!.game.currentPlayerId).not.toBe(xPlayerId);
 }, 10_000);
+
+it('hai socket chơi Bắn tàu qua API: projection riêng, ACK nhắm riêng, bắn trượt không lưu dấu', async () => {
+  active = createRealtimeServer({ serveWeb: false, roomService: new RoomService({ randomInt: () => 0 }) });
+  await new Promise<void>((resolve) => active!.http.listen(0, '127.0.0.1', resolve));
+  const address = active.http.address(); if (!address || typeof address === 'string') throw new Error('Không lấy được cổng test.');
+  const url = 'http://127.0.0.1:' + address.port;
+  const open = async () => {
+    const socket = connect(url, { forceNew: true, transports: ['websocket'], reconnection: false }); clients.push(socket);
+    await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
+    return socket;
+  };
+  const host = await open(); const guest = await open();
+  let latestGuest: any;
+  guest.on('room:snapshot', (snapshot) => { latestGuest = snapshot; });
+  const created = await emitAck(host, 'room:create', {
+    actionId: crypto.randomUUID(), nickname: 'Chủ tàu', visibility: 'private', gameKey: 'bantau',
+    settings: { gameKey: 'bantau', turnSeconds: 30, targetScore: 10, boardSize: 8, shipCount: 3, hitContinues: true, allowTouch: false },
+  });
+  expect(created.ok).toBe(true); expect(created.snapshot?.gameKey).toBe('bantau');
+  const credentials = created.credentials!;
+  const joined = await emitAck(guest, 'room:join', { actionId: crypto.randomUUID(), code: credentials.roomCode, nickname: 'Khách tàu' });
+  expect(joined.ok).toBe(true); latestGuest = joined.snapshot;
+  const ready = await emitAck(guest, 'room:ready', action(credentials.roomId, joined.snapshot!.revision, { ready: true }));
+  const started = await emitAck(host, 'room:start', action(credentials.roomId, ready.snapshot!.revision));
+  expect(started.ok).toBe(true); expect(started.snapshot!.game.phase).toBe('setup');
+  const setupGuest = await waitForSnapshot(guest, () => latestGuest, started.snapshot!.revision);
+  expect(setupGuest.game.ownFleet.ships.every((ship: any) => ship.id.startsWith(joined.credentials!.playerId + ':'))).toBe(true);
+  expect(started.snapshot!.game.ownFleet.ships.every((ship: any) => ship.id.startsWith(credentials.playerId + ':'))).toBe(true);
+
+  // Deterministic, legal fleets make this socket test independent of random placement.
+  const room = active.rooms.getRoom(credentials.roomId);
+  const state = room.bantauGame!;
+  for (const player of state.players) {
+    const anchors = [{ row: 0, col: 0 }, { row: 2, col: 0 }, { row: 4, col: 0 }];
+    player.fleet = player.fleet.map((ship, index) => ({ ...ship, anchor: anchors[index]!, orientation: 'horizontal' }));
+  }
+  const opponentFleetIds = state.players[1]!.fleet.map((ship) => ship.id);
+  expect(JSON.stringify(started.snapshot!.game)).not.toContain(opponentFleetIds[0]);
+
+  const hostLock = await emitAck(host, 'bantau:action', action(credentials.roomId, started.snapshot!.revision, {
+    gameId: started.snapshot!.game.gameId, type: 'lockFleet', setupId: started.snapshot!.game.setupId, expectedFleetRevision: 0,
+  }));
+  expect(hostLock.ok).toBe(true);
+  const guestAfterLock = await waitForSnapshot(guest, () => latestGuest, hostLock.snapshot!.revision);
+  const guestLock = await emitAck(guest, 'bantau:action', action(credentials.roomId, guestAfterLock.revision, {
+    gameId: guestAfterLock.game.gameId, type: 'lockFleet', setupId: guestAfterLock.game.setupId, expectedFleetRevision: 0,
+  }));
+  expect(guestLock.ok).toBe(true); expect(guestLock.snapshot!.game.phase).toBe('turn');
+  const hostTurn = guestLock.snapshot!;
+  const guestTurn = await waitForSnapshot(guest, () => latestGuest, hostTurn.revision);
+  expect(guestTurn.game.targetBoard).toHaveLength(64);
+  expect(guestTurn.game.targetBoard.every((cell: string) => cell === 'unknown')).toBe(true);
+
+  const currentPlayerId = hostTurn.game.currentPlayerId;
+  const actor = currentPlayerId === credentials.playerId ? host : guest;
+  const actorId = currentPlayerId;
+  const targetCell = { row: 7, col: 7 };
+  const aimed = await emitAck(actor, 'bantau:aim', {
+    actionId: crypto.randomUUID(), roomId: credentials.roomId, gameId: hostTurn.game.gameId,
+    turnId: hostTurn.game.turnId, sequence: 1, cell: targetCell,
+  });
+  expect(aimed.ok).toBe(true); expect(aimed.aim).toMatchObject({ turnId: hostTurn.game.turnId, sequence: 1, cell: targetCell });
+  expect(aimed).not.toHaveProperty('snapshot');
+  expect((active.rooms.snapshot(room, actorId).game as any)?.ownAim).toMatchObject({ sequence: 1, cell: targetCell });
+  const otherId = actorId === credentials.playerId ? joined.credentials!.playerId : credentials.playerId;
+  expect((active.rooms.snapshot(room, otherId).game as any)?.ownAim).toBeNull();
+
+  const effectEvent = new Promise<any>((resolve) => actor.once('bantau:effect', resolve));
+  const fired = await emitAck(actor, 'bantau:action', action(credentials.roomId, hostTurn.revision, {
+    gameId: hostTurn.game.gameId, type: 'fire', turnId: hostTurn.game.turnId, aimSequence: 1, ...targetCell,
+  }));
+  expect(fired.ok).toBe(true);
+  const effect = await effectEvent;
+  expect(effect).toMatchObject({ result: 'miss', source: 'manual', actorId, ...targetCell });
+  expect(fired.snapshot!.game.targetBoard[targetCell.row * 8 + targetCell.col]).toBe('unknown');
+  expect(JSON.stringify(fired.snapshot!.game)).not.toContain(opponentFleetIds[0]);
+});

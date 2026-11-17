@@ -1,10 +1,10 @@
 # Phạm vi sản phẩm MVP
 
-Trạng thái: UNO [BB-UNO-1], Nối từ [NT-VI-1] và Caro [HQ-CARO-1] đã có trong code; Caro đúng 2 người, hai game còn lại 2–6 người. Nối từ và Caro đang chờ nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md), [báo cáo Nối từ](./reports/noitu/summary.md) và [báo cáo Caro](./reports/caro/summary.md).
+Trạng thái: UNO [BB-UNO-1], Nối từ [NT-VI-1], Caro [HQ-CARO-1] và Bắn tàu [HQ-BANTAU-1] đã có trong code. UNO/Nối từ chơi 2–6 người; Caro/Bắn tàu đúng 2 người. Bắn tàu đang chờ Terra nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md), hồ sơ game và [QA Bắn tàu](./reports/bantau/07-qa.md).
 
 ## Mục tiêu
 
-Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi UNO, Nối từ hoặc Caro realtime. Mỗi phòng chỉ có một game; Caro đúng hai người, UNO/Nối từ tối đa sáu. Server quyết định nước đi và kết quả. Không có điểm tích lũy qua nhiều ván.
+Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi một trong bốn game realtime. Mỗi phòng chỉ có một game; Caro/Bắn tàu đúng hai người, UNO/Nối từ tối đa sáu. Server quyết định nước đi và kết quả. Trận dùng điểm trong RAM: thắng ván +10, mục tiêu trận do phòng cấu hình.
 
 ## Luồng và điều kiện chấp nhận
 
@@ -14,9 +14,10 @@ Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, 
 | Tạo phòng | Server cấp mã và token phiên | Có mã sao chép được và chọn public/private; không tạo phòng hai lần khi nhấn lặp |
 | Tham gia | Nhập mã rồi nhập tên | Báo rõ phòng sai/đầy/đang chơi; không có luồng join qua link |
 | Phòng chờ | Hiện ghế, tên, kết nối, sẵn sàng, chủ phòng | 2–6 người; tất cả online, mọi khách sẵn sàng; chủ phòng bấm bắt đầu |
-| Ván chơi | Tay bài riêng, lượt, rút, đánh, màu, hô UNO và thao tác luật cần thiết | Server xác thực; thông báo lý do từ chối; không lộ thông tin riêng |
+| Ván UNO | Tay bài riêng, lượt, rút, đánh, màu, hô UNO và thao tác luật cần thiết | Server xác thực; thông báo lý do từ chối; không lộ thông tin riêng |
 | Nối từ | Từ mồi, tiếng khóa, nhập realtime, validate/dictionary vote, lượt và lịch sử | 2–6 người; server chốt từ/phiếu/deadline; từ chưa biết chỉ có hiệu lực trong ván khi nhóm duyệt |
-| Caro | Bàn 15×15, chọn ô, lượt X/O và kết quả | Đúng 2 người; server xác thực nước, deadline 30 giây và quy tắc đúng mục tiêu 4/5/6 còn đầu mở theo HQ-CARO-1 |
+| Caro | Bàn 9/15/19, chọn ô, lượt X/O và kết quả | Đúng 2 người; server xác thực nước, timer và quy tắc đúng mục tiêu 4/5/6 còn đầu mở theo HQ-CARO-1 |
+| Bắn tàu | Đặt tàu kín, nhắm/bắn hai lần, hit/miss/sunk | Đúng 2 người; placement, timer, kết quả và điểm do server quyết định; miss không lưu lịch sử |
 | Kết thúc | Hiện người thắng hoặc lý do hủy ván | Có nút trở về phòng chờ để chơi lại; reset sẵn sàng, giữ phòng và ghế hợp lệ |
 | Nối lại | Reload hoặc mạng gián đoạn ngắn | Giữ đúng ghế, tay bài và ván; socket cũ không điều khiển được |
 
@@ -45,7 +46,7 @@ Các mốc thời gian trên là lựa chọn MVP, có thể điều chỉnh có
 
 ## Ngoài phạm vi
 
-Game khác ngoài UNO, Nối từ và Caro, bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, điểm nhiều ván, lịch sử lâu dài, đồng bộ nhiều backend.
+Game khác ngoài UNO, Nối từ, Caro và Bắn tàu; bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, lịch sử lâu dài, đồng bộ nhiều backend.
 
 ## Tiêu chí nghiệm thu cuối
 
@@ -61,4 +62,8 @@ Game khác ngoài UNO, Nối từ và Caro, bot, tự động ghép trận, khá
 
 ## HQ-CARO-1
 
-Caro dùng bàn 15×15 và đúng 2 người. Thắng khi nối đúng mục tiêu 4/5/6 theo bốn hướng, ít nhất một đầu trống; dãy vượt mục tiêu không thắng. Mỗi lượt 30 giây do server quyết định; timeout hoặc chịu thua kết thúc ván, mất kết nối tạm dừng lượt theo grace period phòng. Xem [luật và nguồn](./caro-rules.md) cùng [báo cáo triển khai](./reports/caro/summary.md).
+Caro dùng bàn 9×9, 15×15 hoặc 19×19 và đúng 2 người. Thắng khi nối đúng mục tiêu 4/5/6 theo bốn hướng, ít nhất một đầu trống; dãy vượt mục tiêu không thắng. Mỗi lượt 30 giây do server quyết định; timeout hoặc chịu thua kết thúc ván, mất kết nối tạm dừng lượt theo grace period phòng. Xem [luật và nguồn](./caro-rules.md) cùng [báo cáo triển khai](./reports/caro/summary.md).
+
+## HQ-BANTAU-1
+
+Bắn tàu đúng 2 người. Mỗi người xếp kín preset 3/4/5 tàu trên bàn 8/10/12. Chạm lần đầu để ngắm; chạm lại cùng ô để bắn. Miss không để dấu và được bắn lại; timeout bắn aim đã ACK hoặc ô ngẫu nhiên. Thắng ván +10, chưa đạt target thì tự nối ván sau 3 giây. Luật và khác biệt với Hasbro nằm ở [bantau-rules.md](./bantau-rules.md); triển khai đang chờ Terra QA tại [07-qa.md](./reports/bantau/07-qa.md).
