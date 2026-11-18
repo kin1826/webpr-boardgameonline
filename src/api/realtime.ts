@@ -1,8 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 import {
-  bantauAimStateSchema, bantauEffectSchema, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
+  bantauAimStateSchema, bantauEffectSchema, cotuongPublicGameSchema, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
   type BantauActionPayload, type BantauAimPayload, type BantauEffectEvent, type BantauPlacementPayload, type BantauPublicGame, type GameEffectEvent, type GameKey, type NoituDraftNotice, type NoituDraftPayload,
-  type CaroActionPayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
+  type CaroActionPayload, type CotuongActionPayload, type CotuongLocalActionPayload, type CotuongLocalCreatePayload, type CotuongLocalNewGamePayload, type CotuongLocalResumePayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
 } from '@banban/shared';
 import { createActionId } from '../action-id';
 import type { BackendApiConfig } from './config';
@@ -16,6 +16,9 @@ export type ApiReply = {
   credentials?: SessionCredentials;
   sequence?: number;
   aim?: BantauPublicGame['ownAim'];
+  cotuongGame?: import('@banban/cotuong').CotuongPublicGame;
+  localCredentials?: { localSessionId: string; token: string };
+  localAvatars?: { red: number; black: number };
 };
 
 type ActionEnvelopeKeys = 'actionId' | 'roomId' | 'expectedRevision' | 'gameId';
@@ -26,6 +29,8 @@ export type CaroActionIntent = IntentWithoutEnvelope<CaroActionPayload>;
 type PrivateEnvelopeKeys = 'actionId' | 'roomId';
 type IntentWithoutPrivateEnvelope<T> = T extends Record<PrivateEnvelopeKeys, unknown> ? Omit<T, PrivateEnvelopeKeys> : never;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type CotuongActionIntent = DistributiveOmit<CotuongActionPayload, ActionEnvelopeKeys>;
+export type CotuongLocalActionIntent = DistributiveOmit<CotuongLocalActionPayload, 'actionId'>;
 export type BantauPlacementIntent = DistributiveOmit<BantauPlacementPayload, 'actionId' | 'roomId'>;
 export type BantauAimIntent = IntentWithoutPrivateEnvelope<BantauAimPayload>;
 export type BantauActionIntent = DistributiveOmit<BantauActionPayload, 'actionId' | 'roomId' | 'expectedRevision'>;
@@ -49,6 +54,8 @@ export type RealtimeHandlers = {
   onGameEffect?: (event: GameEffectEvent) => void;
   onBantauEffect?: (event: BantauEffectEvent) => void;
   onSessionRevoked?: (payload: { message?: string }) => void;
+  onLocalCotuongChanged?: (payload: { sessionId: string; game: import('@banban/cotuong').CotuongPublicGame; avatars: { red: number; black: number } }) => void;
+  onLocalCotuongRevoked?: (payload: { message?: string }) => void;
 };
 
 export class RealtimeApiClient {
@@ -99,6 +106,17 @@ export class RealtimeApiClient {
       const message = 'message' in raw && typeof raw.message === 'string' ? raw.message : undefined;
       handlers.onSessionRevoked?.({ ...(message ? { message } : {}) });
     };
+    const onLocalCotuongChanged = (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const value = raw as Record<string, unknown>;
+      const game = cotuongPublicGameSchema.safeParse(value.game);
+      const avatars = value.avatars as Record<string, unknown> | undefined;
+      if (typeof value.sessionId === 'string' && game.success && Number.isInteger(avatars?.red) && Number.isInteger(avatars?.black)) handlers.onLocalCotuongChanged?.({ sessionId: value.sessionId, game: game.data, avatars: { red: avatars!.red as number, black: avatars!.black as number } });
+    };
+    const onLocalCotuongRevoked = (raw: unknown) => {
+      const message = raw && typeof raw === 'object' && 'message' in raw && typeof raw.message === 'string' ? raw.message : undefined;
+      handlers.onLocalCotuongRevoked?.({ ...(message ? { message } : {}) });
+    };
 
     this.socket.on('connect', onConnect);
     this.socket.on('disconnect', onDisconnect);
@@ -110,6 +128,8 @@ export class RealtimeApiClient {
     this.socket.on('game:effect', onGameEffect);
     this.socket.on('bantau:effect', onBantauEffect);
     this.socket.on('session:revoked', onSessionRevoked);
+    this.socket.on('cotuong:local:changed', onLocalCotuongChanged);
+    this.socket.on('cotuong:local:revoked', onLocalCotuongRevoked);
 
     return () => {
       this.socket.off('connect', onConnect);
@@ -122,6 +142,8 @@ export class RealtimeApiClient {
       this.socket.off('game:effect', onGameEffect);
       this.socket.off('bantau:effect', onBantauEffect);
       this.socket.off('session:revoked', onSessionRevoked);
+      this.socket.off('cotuong:local:changed', onLocalCotuongChanged);
+      this.socket.off('cotuong:local:revoked', onLocalCotuongRevoked);
     };
   }
 
@@ -166,6 +188,18 @@ export class RealtimeApiClient {
     return this.emitAck('bantau:action', { actionId: createActionId(), roomId, expectedRevision, ...intent });
   }
 
+  cotuongAction(roomId: string, expectedRevision: number, gameId: string, intent: CotuongActionIntent): Promise<ApiReply> {
+    return this.emitAck('cotuong:action', { actionId: createActionId(), roomId, expectedRevision, gameId, ...intent });
+  }
+
+  createLocalCotuong(input: Omit<CotuongLocalCreatePayload, 'actionId'>): Promise<ApiReply> {
+    return this.emitAck('cotuong:local:create', { actionId: createActionId(), ...input });
+  }
+  resumeLocalCotuong(input: CotuongLocalResumePayload): Promise<ApiReply> { return this.emitAck('cotuong:local:resume', input); }
+  localCotuongAction(input: CotuongLocalActionIntent): Promise<ApiReply> { return this.emitAck('cotuong:local:action', { actionId: createActionId(), ...input }); }
+  newLocalCotuong(input: Omit<CotuongLocalNewGamePayload, 'actionId'>): Promise<ApiReply> { return this.emitAck('cotuong:local:new-game', { actionId: createActionId(), ...input }); }
+  leaveLocalCotuong(input: CotuongLocalResumePayload): Promise<ApiReply> { return this.emitAck('cotuong:local:leave', input); }
+
   sendNoituDraft(payload: NoituDraftPayload): void {
     if (this.socket.connected) this.socket.emit('noitu:draft', payload);
   }
@@ -187,7 +221,7 @@ export class RealtimeApiClient {
           if (!snapshot) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về bàn chơi không hợp lệ.' });
         }
         let credentials: SessionCredentials | undefined;
-        if ('credentials' in value) {
+        if ('credentials' in value && !(value.credentials && typeof value.credentials === 'object' && 'localSessionId' in value.credentials)) {
           const parsed = sessionCredentialsSchema.safeParse(value.credentials);
           if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về phiên phòng không hợp lệ.' });
           credentials = parsed.data;
@@ -198,13 +232,27 @@ export class RealtimeApiClient {
           if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về mục tiêu Bắn tàu không hợp lệ.' });
           aim = parsed.data;
         }
+        let cotuongGame: ApiReply['cotuongGame'];
+        if ('game' in value) {
+          const parsed = cotuongPublicGameSchema.safeParse(value.game);
+          if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về bàn Cờ tướng không hợp lệ.' });
+          cotuongGame = parsed.data;
+        }
+        let localCredentials: ApiReply['localCredentials'];
+        if ('credentials' in value && value.credentials && typeof value.credentials === 'object' && 'localSessionId' in value.credentials && 'token' in value.credentials) {
+          const local = value.credentials as Record<string, unknown>;
+          if (typeof local.localSessionId !== 'string' || typeof local.token !== 'string' || !/^[A-Za-z0-9_-]{40,60}$/.test(local.token)) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về phiên Cờ tướng không hợp lệ.' });
+          localCredentials = { localSessionId: local.localSessionId, token: local.token };
+        }
+        const rawAvatars = value.avatars && typeof value.avatars === 'object' ? value.avatars as Record<string, unknown> : null;
+        const localAvatars = rawAvatars && Number.isInteger(rawAvatars.red) && Number.isInteger(rawAvatars.black) ? { red: rawAvatars.red as number, black: rawAvatars.black as number } : undefined;
         resolve({
           ok,
           ...(typeof value.code === 'string' ? { code: value.code } : {}),
           ...(typeof value.message === 'string' ? { message: value.message } : {}),
           ...(typeof value.actionId === 'string' ? { actionId: value.actionId } : {}),
           ...(typeof value.sequence === 'number' ? { sequence: value.sequence } : {}),
-          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}), ...('aim' in value ? { aim } : {}),
+          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}), ...('aim' in value ? { aim } : {}), ...(cotuongGame ? { cotuongGame } : {}), ...(localCredentials ? { localCredentials } : {}), ...(localAvatars ? { localAvatars } : {}),
         });
       });
     });

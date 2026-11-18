@@ -17,7 +17,8 @@
     "tsx": "^4.23.15",
     "zod": "^4.6.7",
     "@banban/caro": "*",
-    "@banban/bantau": "*"
+    "@banban/bantau": "*",
+    "@banban/cotuong": "*"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -1,6 +1,6 @@
 # Phòng chơi và phần dùng lại giữa các game
 
-Trạng thái: room/session dùng chung cho UNO, Nối từ, Caro và Bắn tàu. Bắn tàu đang chờ Terra nghiệm thu độc lập. Kết quả và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md), hồ sơ từng game và [QA Bắn tàu](./reports/bantau/07-qa.md).
+Trạng thái: room/session dùng chung cho UNO, Nối từ, Caro, Bắn tàu và Cờ tướng. Bắn tàu và Cờ tướng đang chờ Terra nghiệm thu độc lập. Kết quả và giới hạn nằm trong [tóm tắt dự án](./reports/project-summary.md), hồ sơ từng game, [QA Bắn tàu](./reports/bantau/summary.md) và [QA Cờ tướng](./reports/cotuong/summary.md).
 
 ## Vào phòng bằng mã, public và private
 
@@ -20,7 +20,7 @@ Trạng thái: room/session dùng chung cho UNO, Nối từ, Caro và Bắn tàu
 
 ## Sẵn sàng và bắt đầu
 
-- UNO/Nối từ bắt đầu với 2–6 người thật, bỏ qua ghế trống. Caro/Bắn tàu chỉ bắt đầu khi có đúng 2 người.
+- UNO/Nối từ bắt đầu với 2–6 người thật, bỏ qua ghế trống. Caro/Bắn tàu/Cờ tướng online chỉ bắt đầu khi có đúng 2 người.
 - Khách có nút “Sẵn sàng” / “Hủy sẵn sàng”. Chủ phòng có nút “Bắt đầu”; bấm bắt đầu chính là xác nhận của chủ phòng, không cần thêm lần bấm sẵn sàng riêng cho chủ phòng.
 - Server chỉ chấp nhận start khi đúng chủ phòng, game của phòng sẵn sàng, phòng đang chờ, có ít nhất 2 người, tất cả đang kết nối và tất cả khách sẵn sàng.
 - Khi thiếu điều kiện, nút start bị vô hiệu hóa kèm lý do cụ thể như “Cần thêm 1 người”, “Chờ An sẵn sàng”, “Có người đang mất kết nối” hoặc “Từ điển thử nghiệm chưa sẵn sàng”. Khách không thấy nút bắt đầu.
@@ -32,8 +32,8 @@ Trạng thái: room/session dùng chung cho UNO, Nối từ, Caro và Bắn tàu
 - Một trận là chuỗi ván của cùng game, roster và settings. Người thắng mỗi ván nhận 10 điểm; hòa/thua/hủy nhận 0. Mục tiêu 10–500 bội số 10, mặc định 50. Điểm chỉ trong RAM và không chuyển giữa phòng/game.
 - Khi chưa ai đạt mục tiêu, server công bố intermission 3 giây rồi mở ván kế tiếp tự động, không reload trình duyệt, không host-confirm/ready lại. Khi đủ mục tiêu, trận dừng. Một kết quả được quyết toán đúng một lần theo gameId/roundId.
 - Người chơi được rời trong intermission. Rời, kick hoặc hết reconnect grace trước khi ván mới bắt đầu hủy countdown và trận; không âm thầm đổi roster. Offline tạm thời pause countdown trong grace; khi tất cả quay lại thì resume phần thời gian còn lại. Callback cũ không thể khởi tạo ván mới sau khi match đã hủy.
-- Host chỉ chỉnh settings trước trận: thời gian lượt 15/30/45/60 giây (mặc định30), mục tiêu điểm, UNO stacking, Caro board9/15/19 + win length4/5/6, Bắn tàu board8/10/12 + 3/4/5 tàu + chạm tàu/trúng bắn tiếp. Thay đổi thật reset ready; khi trận bắt đầu roster/settings khóa. Trận mới có thể reset điểm và chọn cấu hình lại.
-- Public directory hiển thị cả bốn game nhưng chỉ phòng đang chờ, công khai, còn chỗ và được server đánh dấu joinable. Client gọi lại API join; danh sách không đảm bảo chỗ và không phải quyền truy cập. Không lộ private, state bàn/bài/từ, token hoặc nội dung score riêng.
+- Host chỉ chỉnh settings trước trận: thời gian lượt 15/30/45/60 giây (mặc định30), mục tiêu điểm, UNO stacking, Caro board9/15/19 + win length4/5/6, Bắn tàu board8/10/12 + 3/4/5 tàu + chạm tàu/trúng bắn tiếp, Cờ tướng clock Fischer 5/10/15 phút + increment 0/3/5 giây và bên Đỏ ngẫu nhiên/host Đỏ. Thay đổi thật reset ready; khi trận bắt đầu roster/settings khóa. Trận mới có thể reset điểm và chọn cấu hình lại.
+- Public directory hiển thị năm game nhưng chỉ phòng đang chờ, công khai, còn chỗ và được server đánh dấu joinable. Client gọi lại API join; danh sách không đảm bảo chỗ và không phải quyền truy cập. Không lộ private, state bàn/bài/từ, token hoặc nội dung score riêng.
 
 ## Quyền chủ phòng và đuổi người
 
@@ -59,6 +59,7 @@ Tái sử dụng hệ token, typography, nút/input/dialog/toast và các màn s
 | Riêng Nối từ | Prefix/suffix, draft, dictionary check, proposal vote, deadline, lịch sử và người bị loại |
 | Riêng Caro | Bàn 9×9/15×15/19×19, X/O, nước cuối, dãy thắng, deadline và capabilities server |
 | Riêng Bắn tàu | Đội hình riêng, biển đối thủ, hit/miss/sunk, aim owner-only, deadline và capabilities server |
+| Riêng Cờ tướng | Bàn 9×10, quân/side, nước đi hợp lệ, lịch sử giới hạn, đồng hồ mỗi bên, offer hòa và capabilities server |
 
 Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong hero đã bị người dùng bỏ. Tạo phòng nằm sau bước chọn UNO. Phần danh sách công khai đặt dưới khu chọn game hoặc trong trang UNO để không đẩy game xuống khỏi màn đầu.
 
@@ -66,8 +67,8 @@ Trang chủ giữ ô nhập mã; không khôi phục nút tạo phòng trong her
 
 - Giữ React + TypeScript + Vite và CSS tokens; backend Node + TypeScript + Socket.IO, trạng thái RAM trong một process.
 - Room service sở hữu thành viên, host, visibility, ready, start/leave/kick, vòng đời và danh sách công khai. Session service sở hữu token và reconnect. Hai phần không biết lá bài hoặc luật UNO.
-- Room lưu `gameKey`, giới hạn min/max từ catalog server và state riêng game. Điều kiện ready/start chung nằm ở room service; UNO/Nối từ min=2/max=6, Caro/Bắn tàu min=max=2.
-- Module UNO, Nối từ, Caro và Bắn tàu lần lượt sở hữu state, validate hành động, transition, kết quả và projection. Không đẩy engine hoặc raw state kín vào bundle frontend.
+- Room lưu `gameKey`, giới hạn min/max từ catalog server và state riêng game. Điều kiện ready/start chung nằm ở room service; UNO/Nối từ min=2/max=6, Caro/Bắn tàu/Cờ tướng online min=max=2.
+- Module UNO, Nối từ, Caro, Bắn tàu và Cờ tướng lần lượt sở hữu state, validate hành động, transition, kết quả và projection. Không đẩy engine hoặc raw state kín vào bundle frontend.
 - Room service rẽ nhánh tường minh theo từng game hiện có nhưng không tạo plugin framework hay engine luật tổng quát.
 - Khách chỉ gửi ý định; server kiểm tra quyền, phase, payload, action ID và revision. Discovery public cũng do server lọc, không tải toàn bộ phòng rồi ẩn private bằng CSS.
 
@@ -87,4 +88,8 @@ Caro đã tích hợp vào catalog và room/session dùng chung. Room có min/ma
 
 ## Bắn tàu HQ-BANTAU-1
 
-Bắn tàu dùng room/session chung nhưng engine riêng `packages/bantau`. Room có min/max đều 2. `RoomService` sở hữu setup/turn/resolving timer, pause/resume, cleanup, tính điểm và countdown; engine quyết định placement, aim, phát bắn, hit/miss/sunk và projection. `bantau:placement` và `bantau:aim` nhận ý định riêng; `bantau:action` xử lý khóa đội hình, bắn và chịu thua; `bantau:effect` chỉ phát hiệu ứng công khai. Không phát fleet đối phương, aim đối thủ hoặc lịch sử miss qua snapshot, ACK hay effect. Chi tiết ở [luật](./bantau-rules.md), [triển khai](./reports/bantau/06-implementation.md) và [checklist Terra](./reports/bantau/07-qa.md).
+Bắn tàu dùng room/session chung nhưng engine riêng `packages/bantau`. Room có min/max đều 2. `RoomService` sở hữu setup/turn/resolving timer, pause/resume, cleanup, tính điểm và countdown; engine quyết định placement, aim, phát bắn, hit/miss/sunk và projection. `bantau:placement` và `bantau:aim` nhận ý định riêng; `bantau:action` xử lý khóa đội hình, bắn và chịu thua; `bantau:effect` chỉ phát hiệu ứng công khai. Không phát fleet đối phương, aim đối thủ hoặc lịch sử miss qua snapshot, ACK hay effect. Chi tiết ở [luật](./bantau-rules.md), [triển khai](./reports/bantau/summary.md) và [checklist Terra](./reports/bantau/summary.md).
+
+## Cờ tướng HQ-COTUONG-1
+
+Cờ tướng online dùng room chung đúng 2 người, cùng cơ chế public/private, ready/start, điểm trận, reconnect và đổi bên giữa các ván; cấu hình đồng hồ là Fischer theo từng bên, không dùng timeout theo lượt. Engine riêng ở packages/cotuong, server kiểm tra nước đi/kết quả. Hai người cùng máy đi qua một phiên backend local riêng, không chiếm ghế room và không xuất hiện trong danh sách public. Token local được server tạo; backend giữ digest và chỉ socket generation mới nhất có quyền. Phiên local có TTL, restart server xóa state. Xem [luật](./cotuong-rules.md), [triển khai](./reports/cotuong/summary.md) và [Terra checklist](./reports/cotuong/summary.md).

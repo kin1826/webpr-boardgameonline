@@ -8,6 +8,7 @@
     "@banban/noitu": "*",
     "@banban/caro": "*",
     "@banban/bantau": "*",
-    "@banban/uno": "*"
+    "@banban/uno": "*",
+    "@banban/cotuong": "*"
   }
 }

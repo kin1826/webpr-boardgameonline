@@ -1,10 +1,10 @@
 # Phạm vi sản phẩm MVP
 
-Trạng thái: UNO [BB-UNO-1], Nối từ [NT-VI-1], Caro [HQ-CARO-1] và Bắn tàu [HQ-BANTAU-1] đã có trong code. UNO/Nối từ chơi 2–6 người; Caro/Bắn tàu đúng 2 người. Bắn tàu đang chờ Terra nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md), hồ sơ game và [QA Bắn tàu](./reports/bantau/07-qa.md).
+Trạng thái: UNO [BB-UNO-1], Nối từ [NT-VI-1], Caro [HQ-CARO-1], Bắn tàu [HQ-BANTAU-1] và Cờ tướng [HQ-COTUONG-1] đã có trong working tree. UNO/Nối từ chơi 2–6 người; Caro/Bắn tàu/Cờ tướng online đúng 2 người. Bắn tàu và Cờ tướng đang chờ Terra nghiệm thu độc lập. Kết quả kiểm chứng nằm trong [tóm tắt dự án](./reports/project-summary.md), hồ sơ game và checklist tương ứng.
 
 ## Mục tiêu
 
-Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi một trong bốn game realtime. Mỗi phòng chỉ có một game; Caro/Bắn tàu đúng hai người, UNO/Nối từ tối đa sáu. Server quyết định nước đi và kết quả. Trận dùng điểm trong RAM: thắng ván +10, mục tiêu trận do phòng cấu hình.
+Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, vào cùng phòng và chơi một trong năm game realtime. Mỗi phòng chỉ có một game; Caro/Bắn tàu/Cờ tướng online đúng hai người, UNO/Nối từ tối đa sáu. Cờ tướng còn có chế độ hai người cùng máy qua backend. Server quyết định nước đi và kết quả. Trận dùng điểm trong RAM: thắng ván +10, mục tiêu trận do phòng cấu hình.
 
 ## Luồng và điều kiện chấp nhận
 
@@ -18,6 +18,7 @@ Hai người trở lên trên thiết bị riêng mở web, nhập biệt danh, 
 | Nối từ | Từ mồi, tiếng khóa, nhập realtime, validate/dictionary vote, lượt và lịch sử | 2–6 người; server chốt từ/phiếu/deadline; từ chưa biết chỉ có hiệu lực trong ván khi nhóm duyệt |
 | Caro | Bàn 9/15/19, chọn ô, lượt X/O và kết quả | Đúng 2 người; server xác thực nước, timer và quy tắc đúng mục tiêu 4/5/6 còn đầu mở theo HQ-CARO-1 |
 | Bắn tàu | Đặt tàu kín, nhắm/bắn hai lần, hit/miss/sunk | Đúng 2 người; placement, timer, kết quả và điểm do server quyết định; miss không lưu lịch sử |
+| Cờ tướng | Bàn 9×10, 32 quân chibi tự vẽ, nước đi, chiếu, hòa/xin thua | Đúng 2 người online hoặc hai người cùng máy; server xác thực nước, đồng hồ và kết quả |
 | Kết thúc | Hiện người thắng hoặc lý do hủy ván | Có nút trở về phòng chờ để chơi lại; reset sẵn sàng, giữ phòng và ghế hợp lệ |
 | Nối lại | Reload hoặc mạng gián đoạn ngắn | Giữ đúng ghế, tay bài và ván; socket cũ không điều khiển được |
 
@@ -46,7 +47,7 @@ Các mốc thời gian trên là lựa chọn MVP, có thể điều chỉnh có
 
 ## Ngoài phạm vi
 
-Game khác ngoài UNO, Nối từ, Caro và Bắn tàu; bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, lịch sử lâu dài, đồng bộ nhiều backend.
+Game khác ngoài UNO, Nối từ, Caro, Bắn tàu và Cờ tướng; bot, tự động ghép trận, khán giả, chat/voice, bạn bè, tài khoản, thanh toán, quảng cáo, giải đấu, lịch sử lâu dài, đồng bộ nhiều backend.
 
 ## Tiêu chí nghiệm thu cuối
 
@@ -66,4 +67,8 @@ Caro dùng bàn 9×9, 15×15 hoặc 19×19 và đúng 2 người. Thắng khi n�
 
 ## HQ-BANTAU-1
 
-Bắn tàu đúng 2 người. Mỗi người xếp kín preset 3/4/5 tàu trên bàn 8/10/12. Chạm lần đầu để ngắm; chạm lại cùng ô để bắn. Miss không để dấu và được bắn lại; timeout bắn aim đã ACK hoặc ô ngẫu nhiên. Thắng ván +10, chưa đạt target thì tự nối ván sau 3 giây. Luật và khác biệt với Hasbro nằm ở [bantau-rules.md](./bantau-rules.md); triển khai đang chờ Terra QA tại [07-qa.md](./reports/bantau/07-qa.md).
+Bắn tàu đúng 2 người. Mỗi người xếp kín preset 3/4/5 tàu trên bàn 8/10/12. Chạm lần đầu để ngắm; chạm lại cùng ô để bắn. Miss không để dấu và được bắn lại; timeout bắn aim đã ACK hoặc ô ngẫu nhiên. Thắng ván +10, chưa đạt target thì tự nối ván sau 3 giây. Luật và khác biệt với Hasbro nằm ở [bantau-rules.md](./bantau-rules.md); triển khai đang chờ Terra QA tại [07-qa.md](./reports/bantau/summary.md).
+
+## HQ-COTUONG-1
+
+Cờ tướng đúng hai người. Online chơi theo phòng chung; hai người cùng máy dùng phiên backend local và thay phiên điều khiển. Đỏ đi trước. Mỗi bên có đồng hồ Fischer 5/10/15 phút + increment 0/3/5 giây; cùng máy mặc định tắt clock. Engine chạy ở server. Xử lặp bốn lần và 120 ply không bắt quân là lựa chọn triển khai được ghi rõ, không tuyên bố đủ luật giải WXF. Xem [luật](./cotuong-rules.md) và [báo cáo kiểm chứng](./reports/cotuong/summary.md).
