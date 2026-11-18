@@ -1,0 +1,7 @@
+{
+  "format": "SVG sprite sheets authored for Hội Quậy; transparent canvas, 64x64 frame cells.",
+  "torpedo": { "file": "torpedo.svg", "frameWidth": 64, "frameHeight": 96, "frameCount": 1 },
+  "splash": { "file": "splash-sheet.svg", "frameWidth": 64, "frameHeight": 64, "frameCount": 8, "fps": 24 },
+  "explosion": { "file": "explosion-sheet.svg", "frameWidth": 64, "frameHeight": 64, "frameCount": 10, "fps": 24 },
+  "fire": { "file": "fire-sheet.svg", "frameWidth": 64, "frameHeight": 64, "frameCount": 8, "fps": 8, "loop": true }
+}

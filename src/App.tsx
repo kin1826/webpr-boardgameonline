@@ -2,6 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as Rea
 import { DEFAULT_GAME_SETTINGS, GAME_CATALOG, type GameEffectEvent, type GameKey, type GameSettings, type NoituDraftNotice, type PublicRoomSummary, type RoomSnapshot, type RoomVisibility, type SessionCredentials } from '@banban/shared';
 import type { UnoCard, projectGame } from '@banban/uno';
 import CaroTable from './caro/CaroTable';
+import BantauTable from './bantau/BantauTable';
+import CotuongTable, { type CotuongActionIntent } from './cotuong/CotuongTable';
+import CotuongStartDialog, { type CotuongLocalSetup } from './cotuong/CotuongStartDialog';
 import NoituTable from './noitu/NoituTable';
 import { rejectedProposalBetween, type ProposalView, type RejectionPresentation } from './noitu/word-tiles';
 import RoomInviteActions from './components/RoomInviteActions';
@@ -12,13 +15,15 @@ import RoomSettingsDialog from './components/RoomSettingsDialog';
 import { playSound, setSoundEffectsEnabled, setSoundEffectsVolume, soundEffectsEnabled, soundEffectsVolume } from './audio/soundEffects';
 import { flightTransform, penaltyImpact, shouldPlayGameEffect, type FlightRect } from './game-effects';
 import { AppApiClient } from './api/client';
-import type { ApiReply, CaroActionIntent, NoituActionIntent, RoomCommandInput, UnoActionIntent } from './api/realtime';
+import type { ApiReply, BantauActionIntent, BantauAimIntent, BantauPlacementIntent, CaroActionIntent, NoituActionIntent, RoomCommandInput, UnoActionIntent } from './api/realtime';
 import type { GameAvailability } from './api/http';
+import { createPresentationClock, presentBantauEffect, type BantauPresentationEffect } from './bantau/presentation-clock';
 
-type Page = 'home' | 'uno' | 'noitu' | 'caro' | 'lobby' | 'table' | 'preview';
+type Page = 'home' | 'uno' | 'noitu' | 'caro' | 'bantau' | 'cotuong' | 'cotuong-local' | 'lobby' | 'table' | 'preview';
 type DemoState = 'your-turn' | 'waiting' | 'drawn' | 'choose-color' | 'uno-window' | 'catch-uno' | 'wild-four' | 'disconnected' | 'finished';
 type UnoColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild';
 type CardInfo = { id: string; face: string; color: UnoColor; label: string; playable: boolean };
+type LocalCotuongCredentials = { localSessionId: string; token: string };
 
 const demoCards: CardInfo[] = [
   { id: 'red-4', face: '4', color: 'red', label: 'Đỏ 4', playable: false },
@@ -85,14 +90,33 @@ function App() {
   const noituRejectedEventId = useRef(0);
   const [noituAvailable, setNoituAvailable] = useState<boolean | null>(null);
   const [caroAvailable, setCaroAvailable] = useState<boolean | null>(null);
+  const [bantauAvailable, setBantauAvailable] = useState<boolean | null>(null);
+  const [cotuongAvailable, setCotuongAvailable] = useState<boolean | null>(null);
+  const [bantauSupported, setBantauSupported] = useState<boolean | null>(null);
+  const [gameCatalogState, setGameCatalogState] = useState<'checking' | 'ready' | 'error'>('checking');
+  const [gameCatalogRetry, setGameCatalogRetry] = useState(0);
   const [gameAvailability, setGameAvailability] = useState<GameAvailability[]>([]);
   const [settingsPanel, setSettingsPanel] = useState<{ mode: 'create' | 'edit'; gameKey: GameKey } | null>(null);
+  const [cotuongStartOpen, setCotuongStartOpen] = useState(false);
+  const [localCotuongGame, setLocalCotuongGame] = useState<import('@banban/cotuong').CotuongPublicGame | null>(null);
+  const [localCotuongAvatars, setLocalCotuongAvatars] = useState<{ red: number; black: number }>({ red: 0, black: 1 });
+  const [localCotuongSession, setLocalCotuongSession] = useState<LocalCotuongCredentials | null>(() => {
+    try { const raw = localStorage.getItem('banban-local-cotuong'); const value = raw ? JSON.parse(raw) as LocalCotuongCredentials : null; return value && typeof value.localSessionId === 'string' && typeof value.token === 'string' ? value : null; }
+    catch { return null; }
+  });
   const roomSnapshotRef = useRef<RoomSnapshot | null>(roomSnapshot);
   const [gameEffect, setGameEffect] = useState<GameEffectEvent | null>(null);
+  const [bantauEffect, setBantauEffect] = useState<BantauPresentationEffect | null>(null);
+  const bantauClockRef = useRef(createPresentationClock());
   const seenEffectsRef = useRef(new Set<string>());
+  const seenBantauShotsRef = useRef(new Set<string>());
   const commitSnapshot = (snapshot: RoomSnapshot | null) => {
     const current = roomSnapshotRef.current;
     if (snapshot && current?.roomId === snapshot.roomId && snapshot.revision < current.revision) return;
+    if (snapshot?.gameKey === 'bantau' && snapshot.game) {
+      if (current?.roomId !== snapshot.roomId || current.game?.gameId !== snapshot.game.gameId) bantauClockRef.current.reset();
+      bantauClockRef.current.sync(snapshot.game.serverNow);
+    } else bantauClockRef.current.reset();
     const before = current?.gameKey === 'noitu' ? current.game : null;
     const after = snapshot?.gameKey === 'noitu' ? snapshot.game : null;
     if (before && after && current?.gameKey === 'noitu' && snapshot?.gameKey === 'noitu') {
@@ -116,6 +140,7 @@ function App() {
     catch { return null; }
   });
   const sessionRef = useRef<SessionCredentials | null>(session);
+  const localCotuongSessionRef = useRef<LocalCotuongCredentials | null>(localCotuongSession);
   const apiRef = useRef<AppApiClient | null>(null);
   const requestLockRef = useRef(false);
   const roomEpochRef = useRef(0);
@@ -145,10 +170,16 @@ function App() {
   }, [session]);
 
   useEffect(() => {
+    localCotuongSessionRef.current = localCotuongSession;
+    if (localCotuongSession) localStorage.setItem('banban-local-cotuong', JSON.stringify(localCotuongSession));
+    else localStorage.removeItem('banban-local-cotuong');
+  }, [localCotuongSession]);
+
+  useEffect(() => {
     const clearRoom = (message: string) => {
       roomEpochRef.current++;
       sessionRef.current = null; setSession(null); localStorage.removeItem('banban-session');
-      commitSnapshot(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage('home'); setBusy(false); requestLockRef.current = false;
+      commitSnapshot(null); setGameEffect(null); setBantauEffect(null); seenEffectsRef.current.clear(); seenBantauShotsRef.current.clear(); setPage('home'); setBusy(false); requestLockRef.current = false;
       setNoituDraft(null);
       setNicknameOpen(false); setRulesOpen(false); setSelectedCard(null); setToast(message);
     };
@@ -166,26 +197,40 @@ function App() {
     const unsubscribe = api.realtime.subscribe({
       onRoomClosed: (payload) => { if (payload.roomId === sessionRef.current?.roomId) clearRoom(payload.message); },
       onConnect: () => {
-        setConnected(true); setGameEffect(null); setNoituDraft(null);
+        bantauClockRef.current.reset();
+        setConnected(true); setGameEffect(null); setBantauEffect(null); setNoituDraft(null);
         const saved = sessionRef.current;
-        if (!saved) return;
         const epoch = roomEpochRef.current;
+        if (!saved) {
+          const localSaved = localCotuongSessionRef.current;
+          if (!localSaved) return;
+          void api.realtime.resumeLocalCotuong(localSaved).then((reply) => {
+            if (epoch !== roomEpochRef.current) return;
+            if (!reply.ok || !reply.cotuongGame || !reply.localAvatars) {
+              localCotuongSessionRef.current = null; setLocalCotuongSession(null); setLocalCotuongGame(null); setPage('home');
+              setToast(reply.message || 'Ván cùng máy đã hết hạn. Hãy tạo ván mới.');
+              return;
+            }
+            setLocalCotuongGame(reply.cotuongGame); setLocalCotuongAvatars(reply.localAvatars); setPage('cotuong-local');
+          }).catch(() => { setConnected(false); });
+          return;
+        }
         void api.realtime.resumeSession(saved).then((reply) => {
           if (epoch !== roomEpochRef.current) return;
           if (!reply.ok || !reply.snapshot || !reply.credentials) {
             clearRoom(reply.message || 'Phòng đã hết hạn. Hãy tạo hoặc tham gia phòng khác.');
             return;
           }
-          sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setGameEffect(null); seenEffectsRef.current.clear();
+          sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setGameEffect(null); setBantauEffect(null); seenEffectsRef.current.clear(); seenBantauShotsRef.current.clear();
           setPage(reply.snapshot.phase === 'waiting' ? 'lobby' : 'table');
         }).catch(() => clearRoom('Không nối lại được phiên phòng. Hãy tạo hoặc tham gia phòng khác.'));
       },
-      onDisconnect: () => { setConnected(false); setGameEffect(null); },
-      onConnectError: () => { setConnected(false); setGameEffect(null); },
+      onDisconnect: () => { setConnected(false); setGameEffect(null); setBantauEffect(null); },
+      onConnectError: () => { setConnected(false); setGameEffect(null); setBantauEffect(null); },
       onSnapshot: (snapshot) => {
         if (snapshot.roomId !== sessionRef.current?.roomId) return;
         const previous = roomSnapshotRef.current;
-        if (previous?.game && (!snapshot.game || (previous.game as ProjectedUnoGame).gameId !== (snapshot.game as ProjectedUnoGame).gameId)) { setGameEffect(null); seenEffectsRef.current.clear(); }
+        if (previous?.game && (!snapshot.game || previous.game.gameId !== snapshot.game.gameId || previous.gameKey !== snapshot.gameKey)) { setGameEffect(null); setBantauEffect(null); seenEffectsRef.current.clear(); seenBantauShotsRef.current.clear(); }
         const oldNoitu = previous?.game as { gameId?: string; turnId?: string } | null;
         const nextNoitu = snapshot.game as { gameId?: string; turnId?: string } | null;
         if (snapshot.gameKey !== 'noitu' || oldNoitu?.gameId !== nextNoitu?.gameId || oldNoitu?.turnId !== nextNoitu?.turnId || snapshot.phase !== 'playing' || snapshot.paused) setNoituDraft(null);
@@ -200,7 +245,28 @@ function App() {
         seenEffectsRef.current.add(event.eventId); if (seenEffectsRef.current.size > 128) seenEffectsRef.current.delete(seenEffectsRef.current.values().next().value!);
         setGameEffect(event);
       },
+      onBantauEffect: (event) => {
+        const current = roomSnapshotRef.current;
+        if (!current || current.roomId !== event.roomId || current.gameKey !== 'bantau' || current.game?.gameId !== event.gameId) return;
+        if (seenBantauShotsRef.current.has(event.shotId)) return;
+        const serverNow = bantauClockRef.current.now();
+        if (serverNow === null) return;
+        const presentation = presentBantauEffect(event, serverNow, performance.now());
+        if (!presentation) return;
+        seenBantauShotsRef.current.add(event.shotId);
+        if (seenBantauShotsRef.current.size > 128) seenBantauShotsRef.current.delete(seenBantauShotsRef.current.values().next().value!);
+        setBantauEffect(presentation);
+      },
       onSessionRevoked: (payload) => { clearRoom(payload.message || 'Phiên phòng này đã kết thúc.'); },
+      onLocalCotuongChanged: (payload) => {
+        if (payload.sessionId !== localCotuongSessionRef.current?.localSessionId) return;
+        setLocalCotuongGame((current) => current && current.gameId === payload.game.gameId && payload.game.revision < current.revision ? current : payload.game);
+        setLocalCotuongAvatars(payload.avatars);
+      },
+      onLocalCotuongRevoked: (payload) => {
+        localCotuongSessionRef.current = null; setLocalCotuongSession(null); setLocalCotuongGame(null); setPage('home');
+        setToast(payload.message || 'Ván cùng máy đã kết thúc.');
+      },
     });
     return () => { unsubscribe(); api.close(); if (apiRef.current === api) apiRef.current = null; };
   }, []);
@@ -209,18 +275,31 @@ function App() {
     let active = true;
     const controller = new AbortController();
     const api = apiRef.current;
-    if (!api) { setNoituAvailable(false); setCaroAvailable(false); return () => { active = false; controller.abort(); }; }
+    setGameCatalogState('checking');
+    if (!api) {
+      setNoituAvailable(false); setCaroAvailable(false); setBantauAvailable(false); setCotuongAvailable(false); setBantauSupported(null); setGameCatalogState('error');
+      return () => { active = false; controller.abort(); };
+    }
     void api.http.fetchGames(controller.signal).then((items) => {
       if (active) setGameAvailability(items);
       const noitu = items.find((item) => item.key === 'noitu');
       const caro = items.find((item) => item.key === 'caro');
-      if (active) { setNoituAvailable(Boolean(noitu?.available)); setCaroAvailable(Boolean(caro?.available)); }
-    }).catch(() => { if (active) { setNoituAvailable(false); setCaroAvailable(false); } });
+      const bantau = items.find((item) => item.key === 'bantau');
+      const cotuong = items.find((item) => item.key === 'cotuong');
+      if (active) {
+        setNoituAvailable(Boolean(noitu?.available)); setCaroAvailable(Boolean(caro?.available));
+        setBantauSupported(Boolean(bantau)); setBantauAvailable(Boolean(bantau?.available)); setCotuongAvailable(Boolean(cotuong?.available)); setGameCatalogState('ready');
+      }
+    }).catch(() => {
+      if (active) {
+        setNoituAvailable(false); setCaroAvailable(false); setBantauAvailable(false); setCotuongAvailable(false); setBantauSupported(null); setGameCatalogState('error');
+      }
+    });
     return () => { active = false; controller.abort(); };
-  }, [connected]);
+  }, [connected, gameCatalogRetry]);
 
   useEffect(() => {
-    if (!connected || !['home', 'uno', 'noitu', 'caro'].includes(page)) return;
+    if (!connected || !['home', 'uno', 'noitu', 'caro', 'bantau', 'cotuong'].includes(page)) return;
     let active = true;
     const controller = new AbortController();
     const refresh = () => {
@@ -281,6 +360,14 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [gameEffect]);
 
+  useEffect(() => {
+    if (!bantauEffect) return;
+    const eventId = bantauEffect.eventId;
+    const wait = Math.max(0, bantauEffect.expiresAt - performance.now());
+    const timer = window.setTimeout(() => setBantauEffect((current) => current?.eventId === eventId ? null : current), wait);
+    return () => window.clearTimeout(timer);
+  }, [bantauEffect]);
+
   function saveNickname(name: string) {
     setNickname(name);
     setNicknameOpen(false);
@@ -299,7 +386,7 @@ function App() {
       const reply = await apiRef.current?.realtime.createRoom({ nickname, avatarId, visibility, gameKey, settings }) ?? { ok: false, message: 'API máy chủ chưa sẵn sàng.' };
       if (epoch !== roomEpochRef.current) return;
       if (!reply.ok || !reply.credentials || !reply.snapshot) { setToast(reply.message || 'Chưa tạo được phòng.'); return; }
-      sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage('lobby');
+      sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); setBantauEffect(null); seenEffectsRef.current.clear(); seenBantauShotsRef.current.clear(); setPage('lobby');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Chưa tạo được phòng. Hãy thử lại.');
     } finally { if (epoch === roomEpochRef.current) { requestLockRef.current = false; setBusy(false); } }
@@ -316,7 +403,7 @@ function App() {
       const reply = await apiRef.current?.realtime.joinRoom({ code: roomCodeToJoin, nickname, avatarId }) ?? { ok: false, message: 'API máy chủ chưa sẵn sàng.' };
       if (epoch !== roomEpochRef.current) return;
       if (!reply.ok || !reply.credentials || !reply.snapshot) { setToast(reply.message || 'Chưa vào được phòng.'); return; }
-      setRoomCodeInput(roomCodeToJoin); sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); seenEffectsRef.current.clear(); setPage('lobby');
+      setRoomCodeInput(roomCodeToJoin); sessionRef.current = reply.credentials; setSession(reply.credentials); commitSnapshot(reply.snapshot); setNoituDraft(null); setGameEffect(null); setBantauEffect(null); seenEffectsRef.current.clear(); seenBantauShotsRef.current.clear(); setPage('lobby');
     } catch (error) {
       setToast(error instanceof Error ? error.message : 'Chưa vào được phòng. Hãy thử lại.');
     } finally { if (epoch === roomEpochRef.current) { requestLockRef.current = false; setBusy(false); } }
@@ -378,6 +465,94 @@ function App() {
     return runApiCommand(() => api.realtime.caroAction(session.roomId, roomSnapshot.revision, game.gameId, action));
   }
 
+  async function sendCotuongAction(action: CotuongActionIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'cotuong' || !roomSnapshot.game || !session) return { ok: false, message: 'Ván Cờ tướng chưa sẵn sàng.' };
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.cotuongAction(session.roomId, roomSnapshot.revision, roomSnapshot.game!.gameId, action));
+  }
+
+  async function createLocalCotuong(setup: CotuongLocalSetup) {
+    if (requestLockRef.current) return;
+    if (!connected || sessionRef.current) { setToast('Hãy rời phòng online và kết nối máy chủ trước khi mở ván cùng máy.'); return; }
+    const api = apiRef.current;
+    if (!api) { setToast(backendConfigError || 'API máy chủ chưa sẵn sàng.'); return; }
+    requestLockRef.current = true; setBusy(true);
+    try {
+      const reply = await api.realtime.createLocalCotuong(setup);
+      if (!reply.ok || !reply.cotuongGame || !reply.localCredentials || !reply.localAvatars) { setToast(reply.message || 'Chưa tạo được ván cùng máy.'); return; }
+      localCotuongSessionRef.current = reply.localCredentials; setLocalCotuongSession(reply.localCredentials);
+      setLocalCotuongGame(reply.cotuongGame); setLocalCotuongAvatars(reply.localAvatars); setCotuongStartOpen(false); setPage('cotuong-local');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'Chưa tạo được ván cùng máy.'); }
+    finally { requestLockRef.current = false; setBusy(false); }
+  }
+
+  async function sendLocalCotuongAction(action: CotuongActionIntent) {
+    const credentials = localCotuongSessionRef.current;
+    const game = localCotuongGame;
+    const api = apiRef.current;
+    if (!credentials || !game || !api) return { ok: false, message: 'Phiên ván cùng máy chưa sẵn sàng.' };
+    if (requestLockRef.current) return { ok: false, message: 'Đang xử lý thao tác trước đó.' };
+    const base = { ...credentials, expectedRevision: game.revision, gameId: game.gameId };
+    const payload = action.type === 'move'
+      ? { ...base, ...action }
+      : action.type === 'respondDraw'
+        ? { ...base, ...action, actingSide: game.drawOffer?.offeredBy === 'red' ? 'black' as const : 'red' as const }
+        : { ...base, ...action, actingSide: game.currentSide ?? game.viewerSide ?? 'red' };
+    requestLockRef.current = true; setBusy(true);
+    try {
+      const reply = await api.realtime.localCotuongAction(payload);
+      if (reply.cotuongGame) setLocalCotuongGame(reply.cotuongGame);
+      if (reply.localAvatars) setLocalCotuongAvatars(reply.localAvatars);
+      if (!reply.ok) setToast(reply.message || 'Nước đi chưa thực hiện được.');
+      return reply;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Nước đi chưa thực hiện được.';
+      setToast(message); return { ok: false, message };
+    } finally { requestLockRef.current = false; setBusy(false); }
+  }
+
+  async function newLocalCotuongGame() {
+    const credentials = localCotuongSessionRef.current; const game = localCotuongGame; const api = apiRef.current;
+    if (!credentials || !game || !api || requestLockRef.current) return;
+    requestLockRef.current = true; setBusy(true);
+    try {
+      const reply = await api.realtime.newLocalCotuong({ ...credentials, expectedRevision: game.revision });
+      if (reply.cotuongGame) setLocalCotuongGame(reply.cotuongGame);
+      if (!reply.ok) setToast(reply.message || 'Chưa bắt đầu được ván mới.');
+    } catch (error) { setToast(error instanceof Error ? error.message : 'Chưa bắt đầu được ván mới.'); }
+    finally { requestLockRef.current = false; setBusy(false); }
+  }
+
+  async function leaveLocalCotuong() {
+    const credentials = localCotuongSessionRef.current; const api = apiRef.current;
+    if (credentials && api) {
+      try { await api.realtime.leaveLocalCotuong(credentials); } catch { /* Phiên sẽ được dọn sau grace/TTL nếu kết nối mất. */ }
+    }
+    localCotuongSessionRef.current = null; setLocalCotuongSession(null); setLocalCotuongGame(null); setPage('home'); setBusy(false);
+  }
+
+  async function sendBantauPlacement(action: BantauPlacementIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'bantau' || !session) return { ok: false, message: 'Pha xếp tàu chưa sẵn sàng.' };
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.bantauPlacement(session.roomId, action));
+  }
+
+  async function sendBantauAim(action: BantauAimIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'bantau' || !session) return { ok: false, message: 'Pha ngắm bắn chưa sẵn sàng.' };
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.bantauAim(session.roomId, action));
+  }
+
+  async function sendBantauAction(action: BantauActionIntent) {
+    if (!roomSnapshot || roomSnapshot.gameKey !== 'bantau' || !roomSnapshot.game || !session) return { ok: false, message: 'Ván Bắn tàu chưa sẵn sàng.' };
+    const api = apiRef.current;
+    if (!api) return { ok: false, message: backendConfigError || 'API máy chủ chưa sẵn sàng.' };
+    return runApiCommand(() => api.realtime.bantauAction(session.roomId, roomSnapshot.revision, action));
+  }
+
   function sendNoituDraft(value: { gameId: string; turnId: string; sequence: number; suffix: string }) {
     if (!session || !apiRef.current) return;
     apiRef.current.realtime.sendNoituDraft({ roomId: session.roomId, ...value });
@@ -428,17 +603,18 @@ function App() {
       </header>
 
       <main id="main-content">
-        {page === 'home' && <HomePage code={roomCodeInput} onCode={setRoomCodeInput} onJoin={joinRoom} rooms={rooms} connected={connected} busy={busy} onRefreshRooms={() => { const api = apiRef.current; if (api) void api.http.fetchPublicRooms().then(setRooms).catch(() => undefined); }} noituAvailable={noituAvailable} caroAvailable={caroAvailable} onChooseUno={() => setPage('uno')} onChooseNoitu={() => setPage('noitu')} onChooseCaro={() => setPage('caro')} onToast={setToast} />}
-        {(page === 'uno' || page === 'noitu' || page === 'caro') && <GameIntro gameKey={page} rooms={rooms} connected={connected} busy={busy} onRefresh={() => { const api = apiRef.current; if (api) void api.http.fetchPublicRooms().then(setRooms).catch(() => undefined); }} onJoinPublic={(code) => void joinRoom(code)} onBack={() => setPage('home')} onCreate={(gameKey) => setSettingsPanel({ mode: 'create', gameKey })} onRules={openRules} />}
+        {page === 'home' && <HomePage code={roomCodeInput} onCode={setRoomCodeInput} onJoin={joinRoom} rooms={rooms} connected={connected} busy={busy} onRefreshRooms={() => { const api = apiRef.current; if (api) void api.http.fetchPublicRooms().then(setRooms).catch(() => undefined); }} noituAvailable={noituAvailable} caroAvailable={caroAvailable} bantauAvailable={bantauAvailable} cotuongAvailable={cotuongAvailable} bantauSupported={bantauSupported} gameCatalogState={gameCatalogState} onRetryGameCatalog={() => setGameCatalogRetry((current) => current + 1)} onChooseUno={() => setPage('uno')} onChooseNoitu={() => setPage('noitu')} onChooseCaro={() => setPage('caro')} onChooseBantau={() => setPage('bantau')} onChooseCotuong={() => setPage('cotuong')} onToast={setToast} />}
+        {(page === 'uno' || page === 'noitu' || page === 'caro' || page === 'bantau' || page === 'cotuong') && <GameIntro gameKey={page} rooms={rooms} connected={connected} busy={busy} onRefresh={() => { const api = apiRef.current; if (api) void api.http.fetchPublicRooms().then(setRooms).catch(() => undefined); }} onJoinPublic={(code) => void joinRoom(code)} onBack={() => setPage('home')} onCreate={(gameKey) => gameKey === 'cotuong' ? setCotuongStartOpen(true) : setSettingsPanel({ mode: 'create', gameKey })} onRules={openRules} />}
         {page === 'lobby' && roomSnapshot && <LobbyPage snapshot={roomSnapshot} connected={connected} busy={busy} onCommand={roomCommand} onLeave={() => void leaveRoom(roomSnapshot.gameKey)} onStart={() => void roomCommand({ event: 'room:start' })} onOpenSettings={() => setSettingsPanel({ mode: 'edit', gameKey: roomSnapshot.gameKey })} onToast={setToast} />}
         {page === 'table' && roomSnapshot && session && <>
           <MatchStatus snapshot={roomSnapshot} onLeave={() => void leaveRoom('home')} />
-          {roomSnapshot.gameKey === 'uno' ? <LiveTablePage snapshot={roomSnapshot} effect={gameEffect} playerId={session.playerId} nickname={nickname} connected={connected} busy={busy} onAction={sendGameAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} onToast={setToast} /> : roomSnapshot.gameKey === 'noitu' ? <NoituTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} draft={noituDraft} rejectionEvent={noituRejectedEvent} onRejectionAnimationDone={(id) => setNoituRejectedEvent((event) => event?.id === id ? null : event)} onAction={sendNoituAction} onDraft={sendNoituDraft} onLeave={() => void leaveRoom('home')} onRules={openRules} onRematch={() => void roomCommand({ event: 'room:rematch' })} /> : <CaroTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} onAction={sendCaroAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} />}
+          {roomSnapshot.gameKey === 'uno' ? <LiveTablePage snapshot={roomSnapshot} effect={gameEffect} playerId={session.playerId} nickname={nickname} connected={connected} busy={busy} onAction={sendGameAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} onToast={setToast} /> : roomSnapshot.gameKey === 'noitu' ? <NoituTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} draft={noituDraft} rejectionEvent={noituRejectedEvent} onRejectionAnimationDone={(id) => setNoituRejectedEvent((event) => event?.id === id ? null : event)} onAction={sendNoituAction} onDraft={sendNoituDraft} onLeave={() => void leaveRoom('home')} onRules={openRules} onRematch={() => void roomCommand({ event: 'room:rematch' })} /> : roomSnapshot.gameKey === 'caro' ? <CaroTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} onAction={sendCaroAction} onCommand={roomCommand} onLeave={() => void leaveRoom('home')} onRules={openRules} /> : roomSnapshot.gameKey === 'bantau' ? <BantauTable snapshot={roomSnapshot} playerId={session.playerId} connected={connected} busy={busy} effect={bantauEffect} onPlacement={sendBantauPlacement} onAim={sendBantauAim} onAction={sendBantauAction} onLeave={() => void leaveRoom('home')} onRules={openRules} onRematch={() => void roomCommand({ event: 'room:rematch' })} /> : roomSnapshot.game?.phase ? <CotuongTable game={roomSnapshot.game} avatars={{ red: roomSnapshot.players.find((player) => player.id === roomSnapshot.game!.players.find((side) => side.side === 'red')?.id)?.avatarId ?? 0, black: roomSnapshot.players.find((player) => player.id === roomSnapshot.game!.players.find((side) => side.side === 'black')?.id)?.avatarId ?? 1 }} roomCode={roomSnapshot.code} connected={connected} busy={busy} onAction={sendCotuongAction} onLeave={() => void leaveRoom('home')} /> : <div className="loading-card" role="status">Đang mở bàn cờ tướng…</div>}
         </>}
+        {page === 'cotuong-local' && localCotuongGame && <CotuongTable game={localCotuongGame} avatars={localCotuongAvatars} local connected={connected} busy={busy} onAction={sendLocalCotuongAction} onLeave={() => void leaveLocalCotuong()} onRematch={() => void newLocalCotuongGame()} />}
         {page === 'preview' && <PreviewTablePage nickname={nickname} demoState={demoState} setDemoState={setDemoState} playerCount={playerCount} setPlayerCount={setPlayerCount} selectedCard={selectedCard} onCard={playCard} onToast={setToast} onBack={() => setPage('uno')} onRules={openRules} />}
       </main>
 
-      {page !== 'table' && <footer className="site-footer"><span>© 2026 Hội Quậy</span><a href="https://service.mattel.com/instruction_sheets/W2085-Eng.pdf" target="_blank" rel="noreferrer">Nguồn bộ bài <Icon name="chevron" size={14} /></a></footer>}
+      {page !== 'table' && page !== 'cotuong-local' && <footer className="site-footer"><span>© 2026 Hội Quậy</span><a href="https://service.mattel.com/instruction_sheets/W2085-Eng.pdf" target="_blank" rel="noreferrer">Nguồn bộ bài <Icon name="chevron" size={14} /></a></footer>}
 
       {nicknameOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setNicknameOpen(false); }}>
         <section className="modal-card nickname-modal" role="dialog" aria-modal="true" aria-labelledby="nickname-title" onKeyDown={keepFocusInside}>
@@ -456,7 +632,17 @@ function App() {
       {rulesOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setRulesOpen(false); }}>
         <section ref={rulesDialogRef} className="modal-card rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title" tabIndex={-1} onKeyDown={keepFocusInside}>
           <button className="icon-button modal-close" type="button" aria-label="Đóng luật chơi" onClick={() => setRulesOpen(false)}><Icon name="close" /></button>
-          {(page === 'caro' || roomSnapshot?.gameKey === 'caro') ? <>
+          {(page === 'bantau' || roomSnapshot?.gameKey === 'bantau') ? <>
+            <p className="eyebrow">BẮN TÀU · HQ-BANTAU-1</p><h2 id="rules-title">Cách chơi Bắn tàu</h2>
+            <p className="modal-intro">Hai người xếp hạm đội bí mật trên bàn riêng rồi lần lượt nhắm và bắn vào biển đối thủ. Vị trí tàu chỉ gửi về chủ sở hữu.</p>
+            <ul className="rules-list"><li><b>Xếp tàu:</b> mỗi người có 90 giây để đặt tàu; bàn 8×8, 10×10 hoặc 12×12, đội hình gồm 3–5 tàu theo cấu hình phòng. Không được chồng tàu; luật cho chạm nhau do chủ phòng chọn.</li><li><b>Nhắm và bắn:</b> chạm một ô để nhắm; chạm lại đúng ô sau khi máy chủ xác nhận để bắn. Chạm ô khác sẽ đổi mục tiêu.</li><li><b>Kết quả:</b> bắn trúng được đánh dấu; đánh chìm chỉ lộ các ô của tàu vừa chìm. Bắn trượt không để lại dấu và có thể bắn lại ô đó.</li><li><b>Hết giờ:</b> máy chủ bắn vào ô đã xác nhận đang nhắm; nếu chưa có mục tiêu thì chọn một ô hợp lệ ngẫu nhiên. Hết giờ không loại người chơi.</li><li><b>Trúng tàu:</b> tùy cài đặt phòng, người bắn có thể được bắn tiếp. Đánh chìm toàn bộ hạm đội đối phương sẽ thắng ván; người thắng được +10 điểm.</li><li><b>Trận:</b> nếu chưa đạt điểm mục tiêu, ván mới tự bắt đầu sau 3 giây và người đi trước được luân phiên. Mất kết nối sẽ tạm dừng đồng hồ trong thời gian nối lại.</li></ul>
+            <p className="rules-note">Đây là biến thể HQ-BANTAU-1 của Hội Quậy, không liên kết với Hasbro. Chi tiết và nguồn tham khảo: docs/bantau-rules.md.</p>
+          </> : (page === 'cotuong' || page === 'cotuong-local' || roomSnapshot?.gameKey === 'cotuong') ? <>
+            <p className="eyebrow">CỜ TƯỚNG · HQ-COTUONG-1</p><h2 id="rules-title">Cách chơi Cờ tướng</h2>
+            <p className="modal-intro">Hai bên Đỏ và Đen lần lượt đi quân trên bàn 9×10 giao điểm. Đỏ đi trước; mục tiêu là chiếu bí Tướng đối phương.</p>
+            <ul className="rules-list"><li><b>Tướng, Sĩ, Tượng:</b> Tướng đi một bước trong cung 3×3; Sĩ đi chéo một bước trong cung; Tượng đi chéo hai điểm, không qua sông và không nhảy qua quân chắn mắt.</li><li><b>Xe, Mã, Pháo:</b> Xe đi thẳng không giới hạn nếu đường trống; Mã đi chữ L nhưng bị cản chân; Pháo đi như Xe khi không bắt quân, khi bắt phải có đúng một quân làm ngòi.</li><li><b>Tốt:</b> đi thẳng một điểm; qua sông mới được đi ngang, không đi lùi.</li><li><b>An toàn Tướng:</b> không được để hai Tướng nhìn thẳng cùng một cột khi không có quân chắn, hoặc đi vào thế bị chiếu. Chiếu bí và hết nước hợp lệ đều thua.</li><li><b>Hòa và lặp:</b> theo HQ-COTUONG-1, lặp thế lần thứ tư thì hòa trừ bên chỉ chiếu trong chu kỳ đó sẽ thua; 120 nước không bắt quân hoặc chỉ còn Tướng/Sĩ/Tượng cũng hòa.</li><li><b>Thời gian:</b> Online dùng đồng hồ mỗi bên và cộng thêm theo cài đặt. Hết giờ thua; mất kết nối tạm dừng trong thời gian nối lại. 2P mặc định không giới hạn giờ.</li></ul>
+            <p className="rules-note">HQ-COTUONG-1 là quy ước triển khai của Hội Quậy, không tuyên bố đầy đủ mọi điều xử lặp/chiếu dai của WXF. Đỏ/Đen đổi người cầm bên sau ván Online; 2P có thể tạo ván mới thủ công.</p>
+          </> : (page === 'caro' || roomSnapshot?.gameKey === 'caro') ? <>
             <p className="eyebrow">CARO · HQ-CARO-1</p><h2 id="rules-title">Cách chơi Caro</h2>
             <p className="modal-intro">Hai người lần lượt đặt X và O trên bàn 15 × 15. X đi trước; máy chủ chọn ngẫu nhiên người cầm X ván đầu, rồi đổi X/O khi cùng cặp chơi lại.</p>
             <ul className="rules-list"><li><b>Số quân để thắng:</b> chủ phòng chọn 4, 5 hoặc 6 (mặc định 5). Nối đúng số quân đã chọn liên tiếp ngang, dọc hoặc chéo và còn ít nhất một đầu trống để thắng.</li><li><b>Đầu bị chặn:</b> quân đối phương hoặc mép bàn chặn một đầu. Bị chặn cả hai đầu thì chưa thắng; nối nhiều hơn số quân đã chọn cũng không thắng.</li><li><b>Lượt chơi:</b> mỗi lượt có 30 giây. Hết giờ hoặc chịu thua thì đối thủ thắng.</li><li><b>Mất kết nối:</b> ván tạm dừng và giữ thời gian còn lại khi người chơi nối lại. Rời phòng hoặc quá hạn nối lại sẽ hủy ván.</li><li><b>Hòa:</b> nếu bàn kín mà chưa có người thắng, ván hòa.</li></ul>
@@ -486,9 +672,11 @@ function App() {
         </section>
       </div>}
 
+      {cotuongStartOpen && <CotuongStartDialog nickname={nickname} avatarId={avatarId} busy={busy} onClose={() => setCotuongStartOpen(false)} onOnline={() => { setCotuongStartOpen(false); setSettingsPanel({ mode: 'create', gameKey: 'cotuong' }); }} onLocal={(setup) => void createLocalCotuong(setup)} />}
+
       {settingsPanel && (() => {
         const availability = gameAvailability.find((item) => item.key === settingsPanel.gameKey);
-        const options = availability?.options ?? { turnSeconds: [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(settingsPanel.gameKey === 'uno' ? { stacking: [true, false] } : {}), ...(settingsPanel.gameKey === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}) };
+        const options = availability?.options ?? { turnSeconds: settingsPanel.gameKey === 'cotuong' ? [] : [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(settingsPanel.gameKey === 'uno' ? { stacking: [true, false] } : {}), ...(settingsPanel.gameKey === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}), ...(settingsPanel.gameKey === 'bantau' ? { boardSizes: [8, 10, 12], shipCounts: [3, 4, 5], hitContinues: [true, false], allowTouch: [true, false] } : {}), ...(settingsPanel.gameKey === 'cotuong' ? { baseMinutes: [5, 10, 15], incrementSeconds: [0, 3, 5], redSides: ['random', 'host-red'] } : {}) };
         const initialSettings = settingsPanel.mode === 'edit' && roomSnapshot ? roomSnapshot.settings : availability?.settingsDefaults ?? DEFAULT_GAME_SETTINGS[settingsPanel.gameKey];
         return <RoomSettingsDialog gameKey={settingsPanel.gameKey} initialSettings={initialSettings} options={options} visibility={roomSnapshot?.visibility} includeVisibility={settingsPanel.mode === 'create'} busy={busy} title={settingsPanel.mode === 'create' ? 'Tạo phòng mới' : 'Cài đặt phòng'} submitLabel={settingsPanel.mode === 'create' ? `Tạo phòng ${GAME_CATALOG[settingsPanel.gameKey].name}` : 'Lưu cài đặt'} onClose={() => setSettingsPanel(null)} onSave={(settings, visibility) => {
           setSettingsPanel(null);
@@ -518,7 +706,7 @@ function keepFocusInside(event: ReactKeyboardEvent<HTMLElement>) {
   }
 }
 
-function HomePage({ code, onCode, onJoin, rooms, connected, busy, onRefreshRooms, noituAvailable, caroAvailable, onChooseUno, onChooseNoitu, onChooseCaro, onToast }: { code: string; onCode: (value: string) => void; onJoin: (code?: string) => void; rooms: PublicRoomSummary[]; connected: boolean; busy: boolean; onRefreshRooms: () => void; noituAvailable: boolean | null; caroAvailable: boolean | null; onChooseUno: () => void; onChooseNoitu: () => void; onChooseCaro: () => void; onToast: (message: string) => void }) {
+function HomePage({ code, onCode, onJoin, rooms, connected, busy, onRefreshRooms, noituAvailable, caroAvailable, bantauAvailable, cotuongAvailable, bantauSupported, gameCatalogState, onRetryGameCatalog, onChooseUno, onChooseNoitu, onChooseCaro, onChooseBantau, onChooseCotuong, onToast }: { code: string; onCode: (value: string) => void; onJoin: (code?: string) => void; rooms: PublicRoomSummary[]; connected: boolean; busy: boolean; onRefreshRooms: () => void; noituAvailable: boolean | null; caroAvailable: boolean | null; bantauAvailable: boolean | null; cotuongAvailable: boolean | null; bantauSupported: boolean | null; gameCatalogState: 'checking' | 'ready' | 'error'; onRetryGameCatalog: () => void; onChooseUno: () => void; onChooseNoitu: () => void; onChooseCaro: () => void; onChooseBantau: () => void; onChooseCotuong: () => void; onToast: (message: string) => void }) {
   const [interestedGames, setInterestedGames] = useState<string[]>([]);
   const updatePointerLight = (event: React.PointerEvent<HTMLElement>) => {
     if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
@@ -535,6 +723,8 @@ function HomePage({ code, onCode, onJoin, rooms, connected, busy, onRefreshRooms
     { name: 'UNO', players: '2–6 người', status: 'ĐANG MỞ', color: 'game-uno', action: onChooseUno },
     { name: 'Caro', players: '2 người', status: caroAvailable ? 'ĐANG MỞ' : caroAvailable === null ? 'ĐANG KIỂM TRA' : 'TẠM CHƯA SẴN SÀNG', color: 'game-caro', action: caroAvailable ? onChooseCaro : undefined },
     { name: 'Nối từ', players: '2–6 người', status: noituAvailable ? 'ĐANG MỞ' : noituAvailable === null ? 'ĐANG KIỂM TRA' : 'TẠM CHƯA SẴN SÀNG', color: 'game-word', action: noituAvailable ? onChooseNoitu : undefined },
+    { name: 'Bắn tàu', players: '2 người', status: bantauAvailable ? 'ĐANG MỞ' : gameCatalogState === 'checking' ? 'ĐANG KIỂM TRA' : gameCatalogState === 'error' ? 'MẤT KẾT NỐI' : bantauSupported ? 'TẠM DỪNG' : 'CẦN CẬP NHẬT', color: 'game-bantau', action: bantauAvailable ? onChooseBantau : undefined },
+    { name: 'Cờ tướng', players: '2 người', status: cotuongAvailable ? 'ĐANG MỞ' : gameCatalogState === 'checking' ? 'ĐANG KIỂM TRA' : gameCatalogState === 'error' ? 'MẤT KẾT NỐI' : 'TẠM CHƯA SẴN SÀNG', color: 'game-cotuong', action: cotuongAvailable ? onChooseCotuong : undefined },
     { name: 'Gián điệp', status: 'SẮP RA MẮT', color: 'game-spy' },
   ];
 
@@ -559,14 +749,14 @@ function HomePage({ code, onCode, onJoin, rooms, connected, busy, onRefreshRooms
     </div>
     <PublicRoomsPanel rooms={rooms} connected={connected} busy={busy} onRefresh={onRefreshRooms} onJoin={onJoin} />
     <section className="game-section" aria-labelledby="games-title">
-      <div className="section-heading"><div><h2 id="games-title">Chọn trò chơi</h2></div><span className="section-count">{1 + Number(Boolean(noituAvailable)) + Number(Boolean(caroAvailable))} <span>/ 04 trò chơi</span></span></div>
+      <div className="section-heading"><div><h2 id="games-title">Chọn trò chơi</h2></div><span className="section-count">{1 + Number(Boolean(noituAvailable)) + Number(Boolean(caroAvailable)) + Number(Boolean(bantauAvailable)) + Number(Boolean(cotuongAvailable))} <span>/ 06 trò chơi</span></span></div>
       <div className="game-grid">
         {games.map((game, index) => { const isLive = game.status === 'ĐANG MỞ'; return <article key={game.name} className={`game-card ${game.color} ${index === 0 ? 'featured' : isLive ? 'game-available' : 'coming-soon'}`} onPointerMove={updatePointerLight} onPointerLeave={(event) => { event.currentTarget.style.removeProperty('--mx'); event.currentTarget.style.removeProperty('--my'); }}>
           <div className="game-card-top"><span className={isLive ? 'game-state-live' : 'game-state-soon'}><i />{game.status}</span>{game.players && <span className="game-players">{game.players}</span>}</div>
           <div className="game-art-area">
-            {game.name === 'UNO' ? <div className="uno-card-stack" aria-hidden="true"><CardArt face="5" color="red" tilt="card-tilt-left" /><CardArt face="↻" color="blue" tilt="card-tilt-back" /><CardArt face="7" color="yellow" tilt="card-tilt-front" /></div> : game.name === 'Caro' && isLive ? <div className="caro-card-art" aria-hidden="true"><span>×</span><i /><b>○</b><i /><span>○</span><i /><b>×</b><i /><span>×</span></div> : <GamePlaceholder kind={game.name} />}
+            {game.name === 'UNO' ? <div className="uno-card-stack" aria-hidden="true"><CardArt face="5" color="red" tilt="card-tilt-left" /><CardArt face="↻" color="blue" tilt="card-tilt-back" /><CardArt face="7" color="yellow" tilt="card-tilt-front" /></div> : game.name === 'Caro' && isLive ? <div className="caro-card-art" aria-hidden="true"><span>×</span><i /><b>○</b><i /><span>○</span><i /><b>×</b><i /><span>×</span></div> : game.name === 'Bắn tàu' && isLive ? <div className="bantau-card-art" aria-hidden="true"><span /><i /><b /><small /></div> : game.name === 'Cờ tướng' && isLive ? <div className="cotuong-intro-art" aria-hidden="true"><div className="cotuong-mini-board"><i /><i /><i /><i /></div></div> : <GamePlaceholder kind={game.name} />}
           </div>
-          <div className="game-card-bottom"><div className="game-card-copy"><h3>{game.name}</h3></div>{isLive ? <button className={`button ${game.name === 'UNO' ? 'button-primary game-play' : 'button-secondary game-play'}`} type="button" onClick={game.action}>{game.name === 'UNO' ? 'Chơi UNO' : `Chơi ${game.name}`} <Icon name="arrow" size={17} /></button> : game.name === 'Nối từ' ? <button className="button interest-button" type="button" disabled>{noituAvailable === null ? 'Đang kiểm tra dữ liệu…' : 'Từ điển chưa sẵn sàng'}</button> : game.name === 'Caro' ? <button className="button interest-button" type="button" disabled>{caroAvailable === null ? 'Đang kiểm tra…' : 'Chưa kết nối máy chủ'}</button> : <button className={`button interest-button${interestedGames.includes(game.name) ? ' is-marked' : ''}`} type="button" aria-pressed={interestedGames.includes(game.name)} onClick={() => toggleInterest(game.name)}>{interestedGames.includes(game.name) ? 'Đã đánh dấu' : 'Báo tôi khi ra mắt'}</button>}</div>
+          <div className="game-card-bottom"><div className="game-card-copy"><h3>{game.name}</h3></div>{isLive ? <button className={`button ${game.name === 'UNO' ? 'button-primary game-play' : 'button-secondary game-play'}`} type="button" onClick={game.action}>{game.name === 'UNO' ? 'Chơi UNO' : `Chơi ${game.name}`} <Icon name="arrow" size={17} /></button> : game.name === 'Nối từ' ? <button className="button interest-button" type="button" disabled>{noituAvailable === null ? 'Đang kiểm tra dữ liệu…' : 'Từ điển chưa sẵn sàng'}</button> : game.name === 'Caro' ? <button className="button interest-button" type="button" disabled>{caroAvailable === null ? 'Đang kiểm tra…' : 'Chưa kết nối máy chủ'}</button> : game.name === 'Bắn tàu' || game.name === 'Cờ tướng' ? gameCatalogState === 'error' ? <button className="button interest-button" type="button" onClick={onRetryGameCatalog}>Thử kết nối lại</button> : <button className="button interest-button" type="button" disabled>{gameCatalogState === 'checking' ? 'Đang kiểm tra…' : 'Máy chủ đang tắt trò chơi'}</button> : <button className={`button interest-button${interestedGames.includes(game.name) ? ' is-marked' : ''}`} type="button" aria-pressed={interestedGames.includes(game.name)} onClick={() => toggleInterest(game.name)}>{interestedGames.includes(game.name) ? 'Đã đánh dấu' : 'Báo tôi khi ra mắt'}</button>}</div>
         </article>; })}
       </div>
     </section>
@@ -584,8 +774,8 @@ function PublicRoomsPanel({ rooms, gameKey, connected, busy, onRefresh, onJoin }
   const visibleRooms = rooms.filter((room) => !gameKey || room.gameKey === gameKey).filter((room) => filter === 'all' || room.gameKey === filter);
   return <section className="public-rooms-panel home-public-rooms" aria-labelledby="public-rooms-title">
     <div className="public-rooms-heading"><div><p className="eyebrow">PHÒNG CÔNG KHAI</p><h2 id="public-rooms-title">Hội đang chờ</h2></div><button type="button" className="button button-quiet button-small" onClick={onRefresh} disabled={!connected}>Làm mới</button></div>
-    {!gameKey && <div className="room-game-filters" role="group" aria-label="Lọc phòng theo trò chơi">{(['all', 'uno', 'noitu', 'caro'] as const).map((key) => <button key={key} type="button" aria-pressed={filter === key} className={filter === key ? 'is-selected' : ''} onClick={() => setFilter(key)}>{key === 'all' ? 'Tất cả' : GAME_CATALOG[key].name}</button>)}</div>}
-    {!connected ? <p className="public-room-empty">Đang kết nối máy chủ…</p> : visibleRooms.length === 0 ? <p className="public-room-empty">Chưa có phòng công khai đang chờ.</p> : <div className="public-room-list">{visibleRooms.map((room) => <button className="public-room-row" key={room.code} type="button" disabled={busy || !connected} onClick={() => onJoin(room.code)} aria-label={`Vào phòng ${room.code} của ${room.hostName}, ${GAME_CATALOG[room.gameKey].name}`}><PlayerAvatar id={room.hostAvatarId} className="public-room-avatar" /><div className="public-room-info"><strong>{room.hostName}<small className="public-room-game">{GAME_CATALOG[room.gameKey].name}</small></strong><small>{room.playerCount}/{room.maxPlayers} người · {room.targetScore} điểm · {room.turnSeconds} giây/lượt</small></div><code>{room.code}</code><span className="public-room-enter">Vào <Icon name="arrow" size={16} /></span></button>)}</div>}
+    {!gameKey && <div className="room-game-filters" role="group" aria-label="Lọc phòng theo trò chơi">{(['all', 'uno', 'noitu', 'caro', 'bantau', 'cotuong'] as const).map((key) => <button key={key} type="button" aria-pressed={filter === key} className={filter === key ? 'is-selected' : ''} onClick={() => setFilter(key)}>{key === 'all' ? 'Tất cả' : GAME_CATALOG[key].name}</button>)}</div>}
+    {!connected ? <p className="public-room-empty">Đang kết nối máy chủ…</p> : visibleRooms.length === 0 ? <p className="public-room-empty">Chưa có phòng công khai đang chờ.</p> : <div className="public-room-list">{visibleRooms.map((room) => <button className="public-room-row" key={room.code} type="button" disabled={busy || !connected} onClick={() => onJoin(room.code)} aria-label={`Vào phòng ${room.code} của ${room.hostName}, ${GAME_CATALOG[room.gameKey].name}`}><PlayerAvatar id={room.hostAvatarId} className="public-room-avatar" /><div className="public-room-info"><strong>{room.hostName}<small className="public-room-game">{GAME_CATALOG[room.gameKey].name}</small></strong><small>{room.playerCount}/{room.maxPlayers} người · {room.targetScore} điểm{room.gameKey === 'cotuong' ? ` · ${room.settings.gameKey === 'cotuong' ? `${room.settings.baseMinutes} phút + ${room.settings.incrementSeconds}s/nước` : 'đồng hồ riêng'}` : ` · ${room.turnSeconds ?? 30} giây/lượt`}</small></div><code>{room.code}</code><span className="public-room-enter">Vào <Icon name="arrow" size={16} /></span></button>)}</div>}
   </section>;
 }
 
@@ -596,7 +786,7 @@ function GameIntro({ gameKey, rooms, connected, busy, onRefresh, onJoinPublic, o
     <button className="back-link" type="button" onClick={onBack}><Icon name="back" size={18} />Tất cả trò chơi</button>
     <section className="uno-intro-card">
       <div className="uno-intro-copy"><p className="eyebrow">TRÒ CHƠI ĐANG CÓ</p><h1>{game.name}<span> · {game.minPlayers === game.maxPlayers ? game.maxPlayers : `${game.minPlayers}–${game.maxPlayers}`} người</span></h1><div className="intro-actions"><button className="button button-primary button-large" type="button" disabled={busy || !connected} onClick={() => onCreate(gameKey)}><Icon name="plus" size={19} />{busy ? 'Đang tạo…' : `Tạo phòng ${game.name}`}</button><button className="button button-secondary button-large" type="button" onClick={onRules}><Icon name="rules" size={18} />Luật chơi</button></div></div>
-      {gameKey === 'uno' ? <div className="uno-intro-art" aria-hidden="true"><div className="intro-halo" /><CardArt face="2" color="green" tilt="card-intro-left" /><CardArt face="↶" color="yellow" tilt="card-intro-back" /><CardArt face="7" color="blue" tilt="card-intro-front" /></div> : gameKey === 'noitu' ? <div className="noitu-intro-art" aria-hidden="true"><div className="noitu-intro-orbit" /><div className="noitu-intro-tiles"><span>nấu</span><i>→</i><span>cơm</span></div><b>nước</b><small>MẠCH TỪ CỦA CẢ NHÓM</small></div> : <div className="caro-intro-art" aria-hidden="true"><div className="caro-intro-grid"><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i></div><span>CHỌN NỐI 4 · 5 · 6</span></div>}
+      {gameKey === 'uno' ? <div className="uno-intro-art" aria-hidden="true"><div className="intro-halo" /><CardArt face="2" color="green" tilt="card-intro-left" /><CardArt face="↶" color="yellow" tilt="card-intro-back" /><CardArt face="7" color="blue" tilt="card-intro-front" /></div> : gameKey === 'noitu' ? <div className="noitu-intro-art" aria-hidden="true"><div className="noitu-intro-orbit" /><div className="noitu-intro-tiles"><span>nấu</span><i>→</i><span>cơm</span></div><b>nước</b><small>MẠCH TỪ CỦA CẢ NHÓM</small></div> : gameKey === 'caro' ? <div className="caro-intro-art" aria-hidden="true"><div className="caro-intro-grid"><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i><b>○</b><i>×</i></div><span>CHỌN NỐI 4 · 5 · 6</span></div> : gameKey === 'bantau' ? <div className="bantau-intro-art" aria-hidden="true"><div className="bantau-radar" /><div className="bantau-ship-shape" /><div className="bantau-crosshair" /></div> : <div className="cotuong-intro-art" aria-hidden="true"><div className="cotuong-mini-board"><i /><i /><i /><i /></div></div>}
     </section>
     <PublicRoomsPanel rooms={gameRooms} gameKey={gameKey} connected={connected} busy={busy} onRefresh={onRefresh} onJoin={onJoinPublic} />
   </div>;
@@ -614,7 +804,7 @@ function LobbyPage({ snapshot, connected, busy, onCommand, onLeave, onStart, onO
       <section className="lobby-main">
         <div className="lobby-title-row"><div><p className="eyebrow">{GAME_CATALOG[snapshot.gameKey].name.toUpperCase()} · PHÒNG {snapshot.visibility === 'private' ? 'RIÊNG TƯ' : 'CÔNG KHAI'}</p><h1>Phòng chờ</h1></div><span className="player-limit">{snapshot.players.length} / {snapshot.maxPlayers} người</span></div>
         <div className="room-share-panel"><span className="mini-label">MÃ PHÒNG</span><div className="room-share-main"><strong className="room-code-display">{snapshot.code}</strong><RoomInviteActions code={snapshot.code} /></div></div>
-        <div className="lobby-settings-summary"><span><b>{snapshot.settings.targetScore} điểm</b> để thắng trận · {snapshot.settings.turnSeconds} giây mỗi lượt{snapshot.gameKey === 'uno' && snapshot.settings.gameKey === 'uno' ? ` · ${snapshot.settings.stacking ? 'Có' : 'Không'} cộng dồn` : snapshot.gameKey === 'caro' && snapshot.settings.gameKey === 'caro' ? ` · Bàn ${snapshot.settings.boardSize}×${snapshot.settings.boardSize} · nối ${snapshot.settings.winLength}` : ''}</span>{isHost && <button className="button button-secondary button-small" type="button" disabled={busy || !connected} onClick={onOpenSettings}>Cài đặt trận</button>}</div>
+        <div className="lobby-settings-summary"><span>{snapshot.settings.gameKey === 'cotuong' ? <><b>{snapshot.settings.targetScore} điểm</b> để thắng trận · {snapshot.settings.baseMinutes} phút + {snapshot.settings.incrementSeconds} giây/nước · {snapshot.settings.redSide === 'random' ? 'Đỏ ngẫu nhiên' : 'Chủ phòng cầm Đỏ'}</> : <><b>{snapshot.settings.targetScore} điểm</b> để thắng trận · {snapshot.settings.turnSeconds} giây mỗi lượt{snapshot.gameKey === 'uno' && snapshot.settings.gameKey === 'uno' ? ` · ${snapshot.settings.stacking ? 'Có' : 'Không'} cộng dồn` : snapshot.gameKey === 'caro' && snapshot.settings.gameKey === 'caro' ? ` · Bàn ${snapshot.settings.boardSize}×${snapshot.settings.boardSize} · nối ${snapshot.settings.winLength}` : snapshot.gameKey === 'bantau' && snapshot.settings.gameKey === 'bantau' ? ` · Bàn ${snapshot.settings.boardSize}×${snapshot.settings.boardSize} · ${snapshot.settings.shipCount} tàu · ${snapshot.settings.hitContinues ? 'trúng bắn tiếp' : 'mỗi lượt một phát'}` : ''}</>}</span>{isHost && <button className="button button-secondary button-small" type="button" disabled={busy || !connected} onClick={onOpenSettings}>Cài đặt trận</button>}</div>
         <div className="lobby-roster"><div className="roster-heading"><h2>Người chơi</h2><span>{snapshot.players.length} / {snapshot.maxPlayers} ghế</span></div>
           {snapshot.players.map((seat, index) => <div key={seat.id} className={`roster-seat${seat.isYou ? ' is-you' : ''}${!seat.online ? ' is-empty' : ''}`}>
             <PlayerAvatar id={seat.avatarId} className={`avatar-${index % 4}`} /><span className="roster-name">{seat.nickname}<small>{seat.isHost ? 'Chủ phòng' : seat.isYou ? 'Bạn' : seat.online ? 'Đã vào phòng' : 'Mất kết nối'}</small></span><span className={`seat-status ${!seat.online ? 'status-offline' : seat.isHost || seat.ready ? 'status-ready' : 'status-wait'}`}>{!seat.online ? 'Mất kết nối' : seat.isHost ? 'Chủ phòng' : seat.ready ? 'Sẵn sàng' : 'Chưa sẵn sàng'}</span>{isHost && !seat.isYou && <button className="button button-quiet button-small kick-button" type="button" onClick={() => kick.request(seat.id, seat.nickname)}>Mời ra</button>}

@@ -4,6 +4,7 @@ import App from './App';
 import './styles/theme.css';
 import './styles/lucian-elements.css';
 import './styles/app.css';
+import './styles/bantau.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

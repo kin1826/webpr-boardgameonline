@@ -1,0 +1,126 @@
+{
+  "title": "Bộ quân Cờ tướng ký tự truyền thống của Hội Quậy",
+  "version": "2",
+  "author": "Hội Quậy — đĩa quân và bố cục SVG tự vẽ; ký tự Unicode theo quy ước Cờ tướng",
+  "artworkLicense": "Nội dung SVG gốc của dự án Hội Quậy",
+  "glyphReferences": [
+    "https://www.wxf-xiangqi.org/images/wxf-rules/2018_World_XiangQi_Rules_English2018.pdf",
+    "https://www.wxf-xiangqi.org/images/free_download_books/xiangqi_introduction_chessplayers_20150323.pdf",
+    "https://www.xiangqi.com/help/pieces-and-moves"
+  ],
+  "glyphFont": "Không đóng gói font. SVG dùng fallback CJK sẵn có trên thiết bị; cần kiểm tra glyph trên các hệ điều hành mục tiêu.",
+  "assets": [
+    {
+      "file": "red-general.svg",
+      "side": "red",
+      "role": "general",
+      "glyph": "帥",
+      "label": "Tướng Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-advisor.svg",
+      "side": "red",
+      "role": "advisor",
+      "glyph": "仕",
+      "label": "Sĩ Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-elephant.svg",
+      "side": "red",
+      "role": "elephant",
+      "glyph": "相",
+      "label": "Tượng Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-chariot.svg",
+      "side": "red",
+      "role": "chariot",
+      "glyph": "車",
+      "label": "Xe Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-horse.svg",
+      "side": "red",
+      "role": "horse",
+      "glyph": "馬",
+      "label": "Mã Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-cannon.svg",
+      "side": "red",
+      "role": "cannon",
+      "glyph": "炮",
+      "label": "Pháo Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "red-soldier.svg",
+      "side": "red",
+      "role": "soldier",
+      "glyph": "兵",
+      "label": "Tốt Đỏ",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-general.svg",
+      "side": "black",
+      "role": "general",
+      "glyph": "將",
+      "label": "Tướng Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-advisor.svg",
+      "side": "black",
+      "role": "advisor",
+      "glyph": "士",
+      "label": "Sĩ Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-elephant.svg",
+      "side": "black",
+      "role": "elephant",
+      "glyph": "象",
+      "label": "Tượng Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-chariot.svg",
+      "side": "black",
+      "role": "chariot",
+      "glyph": "俥",
+      "label": "Xe Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-horse.svg",
+      "side": "black",
+      "role": "horse",
+      "glyph": "傌",
+      "label": "Mã Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-cannon.svg",
+      "side": "black",
+      "role": "cannon",
+      "glyph": "砲",
+      "label": "Pháo Đen",
+      "viewBox": "0 0 64 64"
+    },
+    {
+      "file": "black-soldier.svg",
+      "side": "black",
+      "role": "soldier",
+      "glyph": "卒",
+      "label": "Tốt Đen",
+      "viewBox": "0 0 64 64"
+    }
+  ]
+}

@@ -16,21 +16,32 @@ type Props = {
 };
 
 export default function RoomSettingsDialog({ gameKey, initialSettings, options, visibility: initialVisibility = 'private', includeVisibility = false, busy, title, submitLabel, onClose, onSave }: Props) {
-  const [turnSeconds, setTurnSeconds] = useState(initialSettings.turnSeconds);
+  const [turnSeconds, setTurnSeconds] = useState(initialSettings.gameKey === 'cotuong' ? 30 : initialSettings.turnSeconds);
   const [targetScore, setTargetScore] = useState(initialSettings.targetScore);
   const [stacking, setStacking] = useState(initialSettings.gameKey === 'uno' ? initialSettings.stacking : true);
   const [boardSize, setBoardSize] = useState(initialSettings.gameKey === 'caro' ? initialSettings.boardSize : 15);
   const [winLength, setWinLength] = useState(initialSettings.gameKey === 'caro' ? initialSettings.winLength : 5);
+  const [bantauBoardSize, setBantauBoardSize] = useState(initialSettings.gameKey === 'bantau' ? initialSettings.boardSize : 10);
+  const [shipCount, setShipCount] = useState(initialSettings.gameKey === 'bantau' ? initialSettings.shipCount : 5);
+  const [hitContinues, setHitContinues] = useState(initialSettings.gameKey === 'bantau' ? initialSettings.hitContinues : true);
+  const [allowTouch, setAllowTouch] = useState(initialSettings.gameKey === 'bantau' ? initialSettings.allowTouch : false);
+  const [baseMinutes, setBaseMinutes] = useState(initialSettings.gameKey === 'cotuong' ? initialSettings.baseMinutes : 10);
+  const [incrementSeconds, setIncrementSeconds] = useState(initialSettings.gameKey === 'cotuong' ? initialSettings.incrementSeconds : 3);
+  const [redSide, setRedSide] = useState(initialSettings.gameKey === 'cotuong' ? initialSettings.redSide : 'random');
   const [roomVisibility, setRoomVisibility] = useState(initialVisibility);
   const dialogRef = useRef<HTMLElement>(null);
   useEffect(() => { dialogRef.current?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled])')?.focus(); }, []);
 
   const submit = () => {
-    const settings: GameSettings = gameKey === 'uno'
+    const settings: GameSettings = gameKey === 'cotuong'
+      ? { gameKey, targetScore, baseMinutes, incrementSeconds, redSide }
+      : gameKey === 'uno'
       ? { gameKey, turnSeconds, targetScore, stacking }
       : gameKey === 'caro'
         ? { gameKey, turnSeconds, targetScore, boardSize, winLength }
-        : { gameKey, turnSeconds, targetScore };
+        : gameKey === 'bantau'
+          ? { gameKey, turnSeconds, targetScore, boardSize: bantauBoardSize, shipCount, hitContinues, allowTouch }
+          : { gameKey, turnSeconds, targetScore };
     onSave(settings, includeVisibility ? roomVisibility : undefined);
   };
   const keepFocusInside = (event: KeyboardEvent<HTMLElement>) => {
@@ -60,16 +71,27 @@ export default function RoomSettingsDialog({ gameKey, initialSettings, options, 
         <label><span>Điểm để thắng trận</span><small>Thắng mỗi ván được +10 điểm</small>
           <input type="number" min={options.targetScoreMin} max={options.targetScoreMax} step={options.targetScoreStep} value={targetScore} onChange={(event) => setTargetScore(Number(event.target.value))} />
         </label>
-        <label><span>Thời gian mỗi lượt</span><small>Hết giờ thì người chơi bị loại khỏi ván</small>
+        {gameKey !== 'cotuong' && <label><span>Thời gian mỗi lượt</span><small>{gameKey === 'bantau' ? 'Hết giờ: bắn ô đã nhắm hoặc một ô ngẫu nhiên' : 'Thời gian do máy chủ kiểm soát'}</small>
           <select value={turnSeconds} onChange={(event) => setTurnSeconds(Number(event.target.value) as typeof turnSeconds)}>{options.turnSeconds.map((seconds) => <option key={seconds} value={seconds}>{seconds} giây</option>)}</select>
-        </label>
+        </label>}
+        {gameKey === 'cotuong' && <>
+          <label><span>Đồng hồ mỗi bên</span><small>Thời gian chính cho mỗi người</small><select value={baseMinutes} onChange={(event) => setBaseMinutes(Number(event.target.value) as typeof baseMinutes)}>{(options.baseMinutes ?? [5, 10, 15]).map((minutes) => <option key={minutes} value={minutes}>{minutes} phút</option>)}</select></label>
+          <label><span>Cộng thêm sau mỗi nước</span><select value={incrementSeconds} onChange={(event) => setIncrementSeconds(Number(event.target.value) as typeof incrementSeconds)}>{(options.incrementSeconds ?? [0, 3, 5]).map((seconds) => <option key={seconds} value={seconds}>{seconds} giây</option>)}</select></label>
+          <label><span>Ai cầm quân Đỏ ván đầu?</span><select value={redSide} onChange={(event) => setRedSide(event.target.value as typeof redSide)}><option value="random">Chọn ngẫu nhiên</option><option value="host-red">Chủ phòng</option></select></label>
+        </>}
         {gameKey === 'uno' && <label className="settings-toggle-row"><span><b>Cộng dồn lá +</b><small>Khi tắt, người nhận phạt phải rút bài</small></span><input type="checkbox" checked={stacking} onChange={(event) => setStacking(event.target.checked)} /></label>}
         {gameKey === 'caro' && <>
           <label><span>Kích thước bàn</span><select value={boardSize} onChange={(event) => setBoardSize(Number(event.target.value) as typeof boardSize)}>{(options.boardSizes ?? [9, 15, 19]).map((size) => <option key={size} value={size}>{size} × {size}</option>)}</select></label>
           <label><span>Số quân để thắng</span><select value={winLength} onChange={(event) => setWinLength(Number(event.target.value) as typeof winLength)}>{(options.winLengths ?? [4, 5, 6]).map((length) => <option key={length} value={length}>{length} quân</option>)}</select></label>
         </>}
+        {gameKey === 'bantau' && <>
+          <label><span>Kích thước bàn</span><select value={bantauBoardSize} onChange={(event) => setBantauBoardSize(Number(event.target.value) as typeof bantauBoardSize)}>{(options.boardSizes ?? [8, 10, 12]).map((size) => <option key={size} value={size}>{size} × {size}</option>)}</select></label>
+          <label><span>Số tàu mỗi đội</span><select value={shipCount} onChange={(event) => setShipCount(Number(event.target.value) as typeof shipCount)}>{(options.shipCounts ?? [3, 4, 5]).map((count) => <option key={count} value={count}>{count} tàu</option>)}</select></label>
+          <label className="settings-toggle-row"><span><b>Trúng thì bắn tiếp</b><small>Chỉ đổi lượt khi bắn trượt</small></span><input type="checkbox" checked={hitContinues} onChange={(event) => setHitContinues(event.target.checked)} /></label>
+          <label className="settings-toggle-row"><span><b>Cho phép tàu chạm nhau</b><small>Tàu vẫn không được chồng lên nhau</small></span><input type="checkbox" checked={allowTouch} onChange={(event) => setAllowTouch(event.target.checked)} /></label>
+        </>}
       </div>
-      <p className="settings-summary">{targetScore} điểm · {turnSeconds} giây mỗi lượt{gameKey === 'uno' ? ` · ${stacking ? 'Có' : 'Không'} cộng dồn` : gameKey === 'caro' ? ` · Bàn ${boardSize}×${boardSize} · nối ${winLength}` : ''}</p>
+      <p className="settings-summary">{gameKey === 'cotuong' ? `${targetScore} điểm · ${baseMinutes} phút + ${incrementSeconds} giây/nước · Đỏ ${redSide === 'random' ? 'ngẫu nhiên' : 'chủ phòng'}` : `${targetScore} điểm · ${turnSeconds} giây mỗi lượt${gameKey === 'uno' ? ` · ${stacking ? 'Có' : 'Không'} cộng dồn` : gameKey === 'caro' ? ` · Bàn ${boardSize}×${boardSize} · nối ${winLength}` : gameKey === 'bantau' ? ` · Bàn ${bantauBoardSize}×${bantauBoardSize} · ${shipCount} tàu · ${hitContinues ? 'trúng bắn tiếp' : 'mỗi lượt một phát'}` : ''}`}</p>
       <div className="settings-dialog-actions"><button className="button button-quiet" type="button" disabled={busy} onClick={onClose}>Hủy</button><button className="button button-primary button-large" type="button" disabled={busy || targetScore < options.targetScoreMin || targetScore > options.targetScoreMax || targetScore % options.targetScoreStep !== 0} onClick={submit}>{busy ? 'Đang lưu…' : submitLabel}</button></div>
     </section>
   </div>;

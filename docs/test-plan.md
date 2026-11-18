@@ -1,6 +1,6 @@
 # Kế hoạch kiểm thử hiện hành
 
-Expected theo [BB-UNO-1](./uno-rules.md), [NT-VI-1](./noitu-rules.md) và [HQ-CARO-1](./caro-rules.md), vòng đời theo [đặc tả phòng](./rooms-and-reuse.md). Kết quả đã chạy và giới hạn ở [báo cáo hợp nhất](./reports/project-summary.md), [báo cáo Nối từ](./reports/noitu/summary.md) và [báo cáo Caro](./reports/caro/summary.md); báo cáo kiểm thử mới phải nằm trong `docs/reports/`.
+Expected theo [BB-UNO-1](./uno-rules.md), [NT-VI-1](./noitu-rules.md), [HQ-CARO-1](./caro-rules.md), [HQ-BANTAU-1](./bantau-rules.md) và [HQ-COTUONG-1](./cotuong-rules.md), vòng đời theo [đặc tả phòng](./rooms-and-reuse.md). Kết quả đã chạy và giới hạn ở [báo cáo hợp nhất](./reports/project-summary.md), báo cáo từng game, [Bắn tàu](./reports/bantau/summary.md) và [Cờ tướng](./reports/cotuong/summary.md); báo cáo kiểm thử mới phải nằm trong `docs/reports/`.
 
 ## Tự động
 
@@ -22,6 +22,13 @@ Expected theo [BB-UNO-1](./uno-rules.md), [NT-VI-1](./noitu-rules.md) và [HQ-CA
 | Caro engine | Bàn 15×15; lượt/tọa độ/ô bận; đúng mục tiêu 4/5/6 có đầu mở theo 4 trục; vượt mục tiêu không thắng; biên/chặn hai đầu; nhiều trục; hòa; timeout/resign; pause/resume; capabilities |
 | Caro phòng/API | min=max=2, người thứ ba bị từ chối; ready/start; schema strict; action ID/revision/game/turn/session cũ; deadline race/timer cleanup; disconnect pause/grace expiry; leave/kick hủy ván; rematch cùng cặp đổi X/O |
 | Caro realtime/privacy | Hai Socket.IO client độc lập create→join→ready/start→place→win→rematch; action chéo game, packet sai và duplicate; snapshot chỉ có state công khai/capabilities, không có token |
+| Cờ tướng engine | 32 quân/setup; mọi kiểu đi, chân Mã/mắt Tượng/ngòi Pháo, cung/sông, tướng đối mặt, tự chiếu; chiếu bí/bí nước; đề nghị hòa/xin thua; timeout; lặp lần ba/cảnh báo lần bốn/phân loại chiếu dai giản lược; ăn quân reset; cảnh báo 100/hòa 120 ply |
+| Cờ tướng contract/server | Schema strict; action ID/revision/game/turn/socket generation; chỉ đúng ghế và lượt; clock Fischer và race timeout; không tin legal move/result từ client; snapshot có board công khai, history giới hạn và capabilities viewer |
+| Cờ tướng phòng online | Hai socket độc lập create/join/ready/start/move/checkmate/score/countdown/rematch; host Đỏ/ngẫu nhiên; đổi bên; public/private; bên thứ ba bị từ chối; reconnect pause/resume; kick/leave hủy ván; action socket cũ bị chặn |
+| Cờ tướng cùng máy | Token random/hash; create/resume/action/new-game/leave; luân phiên side trên một thiết bị; socket thay thế/generation; revision cũ; handover draw offer; clock tắt/mở; TTL và cleanup |
+| Cờ tướng client/assets | Client chỉ API/render; không import engine runtime hoặc state bí mật; 14 SVG gốc; mobile 360/390/tablet/desktop; bàn phím/focus/reduced motion; ảnh lỗi fallback |
+| Bắn tàu engine | 8/10/12 × preset 3/4/5; placement biên/chồng/chạm chéo; aim ACK riêng/version; bắn tay/timeout race; miss không lưu, bắn lặp được; hit/chìm/reveal đúng tàu; trúng bắn tiếp; pause/resume; target/result |
+| Bắn tàu phòng/API | Hai Socket.IO client độc lập create/join/setup/lock/fire; 2 ghế cố định; fleet/aim riêng từng người; không lộ đội hình hoặc aim qua snapshot/ACK/effect/lỗi; timer setup/turn/resolving và resume; điểm +10 đúng một lần; auto-round/target/leave/restart |
 | Trận v2 / settings | Create/update strict cho target10–500 bước10, thời gian15/30/45/60, stacking UNO và Caro9/15/19 + win4/5/6; guest/host/start race, reset ready đúng lúc, settings/roster không đổi giữa match |
 | Tính điểm / tự nối | Mỗi thắng+10 đúng một lần; hòa/hủy/thua0; nhiều socket cùng score/result; countdown3 giây tự start roundId mới; target đạt thì dừng; leave/kick/grace/timeout callback race không tạo ván hoặc cộng điểm lần hai |
 | UNO timeout v2 | Bỏ qua eliminated ở lượt/Reverse/Skip/phạt/UNO windows; người hết giờ không action/reconnect hồi sinh; penalty target timeout bị hủy; active cuối thắng; giữ kín tay và bảo toàn108 lá; round mới reset status/deck |
@@ -29,7 +36,7 @@ Expected theo [BB-UNO-1](./uno-rules.md), [NT-VI-1](./noitu-rules.md) và [HQ-CA
 | Public directory / UI | Public listing cả game nhưng chỉ waiting/joinable; private/full/playing không lọt; room race khi join; polling pause khi tab ẩn; mobile60/40 không cắt safe area/bàn phím; card back chỉ dùng count |
 | Âm thanh | Gesture mở audio, mute/volume, IME composition, gõ/xóa/bác, event commit dedupe, tab hidden/reconnect, reduced motion độc lập với mute; autoplay block không chặn game |
 
-File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/caro/src/`, `packages/shared/src/`, `server/src/`, `src/action-id.test.ts` và `src/game-effects.test.ts`. Chạy `npm test`, `npm run typecheck`, `npm run build` theo README. Socket tests cần bind loopback; nếu sandbox chặn, rerun có quyền loopback rồi ghi rõ. Không thêm test chỉ kiểm tra tên class hoặc sao chép logic triển khai.
+File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/caro/src/`, `packages/bantau/src/`, `packages/cotuong/src/`, `packages/shared/src/`, `server/src/`, `src/action-id.test.ts` và `src/game-effects.test.ts`. Chạy `npm test`, `npm run typecheck`, `npm run build` theo README. Socket tests cần bind loopback; nếu sandbox chặn, rerun có quyền loopback rồi ghi rõ. Không thêm test chỉ kiểm tra tên class hoặc sao chép logic triển khai.
 
 ## Browser / thiết bị và nghiệm thu Terra
 
@@ -41,5 +48,7 @@ File test nằm trong `packages/uno/src/`, `packages/noitu/src/`, `packages/caro
 6. Cài sạch theo lockfile, chạy production HTTP/Socket.IO, rồi thử URL HTTPS thật bằng hai mạng. Hosting một process/replica, proxy WebSocket đúng; không coi HTML tải được là multiplayer đã hoạt động.
 7. Hai session Nối từ độc lập: tạo/join bằng mã, ready/start, đúng người/seed, prefix khóa, draft realtime, từ known, từ lạ + vote accept/reject/timeout, sai/lặp, hết giờ/chịu thua, reconnect/pause, winner/rematch; sau đó vào UNO để xác nhận route và game không lẫn state.
 8. Hai session Caro độc lập: đúng hai ghế, start với X/O, đặt nước luân phiên, ô bận/sai lượt/tọa độ ngoài biên bị chặn, dãy đúng mục tiêu 4/5/6 có đầu mở thắng, vượt mục tiêu không thắng, timeout/resign/pause/reconnect/rematch đổi ký hiệu. Thử desktop 1440px và mobile 390/360px: zoom/pan/chọn→xác nhận không làm tràn ngang hoặc đánh nhầm.
+9. Hai session Bắn tàu độc lập: mã phòng, ready/start, placement 3/4/5 tàu và bàn 8/10/12, mỗi tùy chọn chạm/trúng bắn tiếp; kiểm tra đối thủ không thấy fleet/aim; aim→fire, đổi aim, trượt không lưu dấu, bắn lại miss, hit/sunk chỉ lộ đúng tàu; timeout aim/random, race/reconnect, +10 và ván tự tiếp tục/target reached. Thử desktop và điện thoại thật; xem [bằng chứng và phần còn mở](./reports/bantau/summary.md).
+10. Cờ tướng: chạy đầy đủ [checklist độc lập](./reports/cotuong/summary.md) cho online hai browser session và hai người cùng máy; thử luật cơ bản/đặc biệt, timer/reconnect/rematch, hai kích thước màn hình, đồng thời hồi quy bốn game cũ.
 
 Ghi đúng môi trường, lệnh/kết quả, fixture hay production shuffle, bằng chứng ảnh/video đã che token, lỗi và phần bị chặn. Chưa xem browser ghi BLOCKED; không dùng test xanh thay nghiệm thu cảm giác motion hoặc điện thoại thật.

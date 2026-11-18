@@ -7,6 +7,8 @@
   "dependencies": {
     "@banban/noitu": "*",
     "@banban/caro": "*",
-    "@banban/uno": "*"
+    "@banban/bantau": "*",
+    "@banban/uno": "*",
+    "@banban/cotuong": "*"
   }
 }
