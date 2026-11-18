@@ -4,15 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import sirv from 'sirv';
 import {
-  DEFAULT_GAME_SETTINGS, GAME_CATALOG, bantauActionSchema, bantauAimSchema, bantauEffectSchema, bantauPlacementSchema, caroSettingsSchema, caroActionSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema, roomSettingsSchema,
+  DEFAULT_GAME_SETTINGS, GAME_CATALOG, bantauActionSchema, bantauAimSchema, bantauEffectSchema, bantauPlacementSchema, caroSettingsSchema, caroActionSchema, cotuongActionSchema, cotuongLocalActionSchema, cotuongLocalCreateSchema, cotuongLocalNewGameSchema, cotuongLocalResumeSchema, gameActionSchema, gameEffectSchema, kickSchema, noituActionSchema, noituDraftSchema, readySchema, resumeSchema, roomCommandSchema, roomSettingsSchema,
   roomCreateSchema, roomJoinSchema, visibilitySchema,
 } from '@banban/shared';
 import { loadNoituDictionary, type RuntimeNoituDictionary } from './noitu-dictionary.ts';
 import { RoomError, RoomService } from './rooms.ts';
+import { CotuongLocalError, CotuongLocalService } from './cotuong-local.ts';
 
 type Ack = (value: Record<string, unknown>) => void;
 type ActiveSession = { roomId: string; playerId: string; generation: number };
-type ClientSocket = Socket & { data: Socket['data'] & { activeSession?: ActiveSession } };
+type ClientSocket = Socket & { data: Socket['data'] & { activeSession?: ActiveSession; activeLocalCotuong?: string } };
 type Cached = { fingerprint: string; response: Record<string, unknown>; expiresAt: number };
 
 export function originAllowed(origin: string | undefined, host?: string, protocol = 'http', allowlist = process.env.ALLOWED_ORIGINS ?? '') {
@@ -44,6 +45,18 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     catch { noitu = null; }
   }
   const roomService = options.roomService ?? new RoomService({ noitu });
+  let ioForLocal: SocketServer | undefined;
+  const localCotuong = new CotuongLocalService({
+    onRevoke: (socketId) => {
+      const client = ioForLocal?.sockets.sockets.get(socketId) as ClientSocket | undefined;
+      if (client) { delete client.data.activeLocalCotuong; client.emit('cotuong:local:revoked', { message: 'Ván cùng máy đã được mở ở kết nối khác.' }); setTimeout(() => client.disconnect(true), 40); }
+    },
+    onChanged: (sessionId) => {
+      const client = [...(ioForLocal?.sockets.sockets.values() ?? [])].find((socket) => (socket as ClientSocket).data.activeLocalCotuong === sessionId);
+      const snapshot = localCotuong.snapshot(sessionId);
+      if (client && snapshot) client.emit('cotuong:local:changed', { sessionId, ...snapshot });
+    },
+  });
   roomService.setLifecycleHandlers({
     onRevoke: (socketId) => {
       const client = io?.sockets.sockets.get(socketId);
@@ -77,6 +90,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
 
   function failure(error: unknown) {
     if (error instanceof RoomError) return { ok: false, code: error.code, message: error.message };
+    if (error instanceof CotuongLocalError) return { ok: false, code: error.code, message: error.message };
     return { ok: false, code: 'INTERNAL_ERROR', message: 'Có lỗi máy chủ. Hãy thử lại.' };
   }
   function allowEvent(socketId: string, ack: Ack) {
@@ -203,6 +217,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     maxHttpBufferSize: 16 * 1024,
     connectionStateRecovery: { maxDisconnectionDuration: 0, skipMiddlewares: false },
   });
+  ioForLocal = io;
 
   io.on('connection', (baseSocket) => {
     const socket = baseSocket as ClientSocket;
@@ -212,6 +227,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     });
     socket.on('room:create', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
+      if (socket.data.activeLocalCotuong) return ack({ ok: false, code: 'ACTIVE_LOCAL_GAME', message: 'Hãy thoát ván cùng máy trước khi vào phòng online.' });
       const parsed = roomCreateSchema.safeParse(raw);
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Hãy nhập biệt danh và chọn chế độ phòng.' });
       const value = parsed.data;
@@ -224,6 +240,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     });
     socket.on('room:join', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
+      if (socket.data.activeLocalCotuong) return ack({ ok: false, code: 'ACTIVE_LOCAL_GAME', message: 'Hãy thoát ván cùng máy trước khi vào phòng online.' });
       const parsed = roomJoinSchema.safeParse(raw);
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Mã phòng hoặc biệt danh chưa hợp lệ.' });
       const value = parsed.data;
@@ -237,6 +254,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     });
     socket.on('session:resume', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
+      if (socket.data.activeLocalCotuong) return ack({ ok: false, code: 'ACTIVE_LOCAL_GAME', message: 'Hãy thoát ván cùng máy trước khi nối lại phòng online.' });
       const parsed = resumeSchema.safeParse(raw);
       if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Thông tin nối lại phiên chưa hợp lệ.' });
       try {
@@ -324,6 +342,61 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
       const effect = roomService.bantauAction(room, seat, expectedRevision, action);
       return effect ? { bantauEffect: effect } : undefined;
     }));
+    socket.on('cotuong:action', (raw: unknown, ack: Ack = () => {}) => command(socket, raw, cotuongActionSchema, ack, (room, seat, value) => {
+      if (room.gameKey !== 'cotuong' || !room.cotuongGame || room.cotuongGame.gameId !== value.gameId) throw new RoomError('STALE_GAME', 'Ván Cờ tướng đã thay đổi. Hãy đồng bộ bàn cờ.');
+      roomService.cotuongAction(room, seat, value.expectedRevision, value);
+    }));
+    socket.on('cotuong:local:create', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      if (socket.data.activeSession) return ack({ ok: false, code: 'ACTIVE_ROOM', message: 'Hãy rời phòng online trước khi mở ván cùng máy.' });
+      if (socket.data.activeLocalCotuong) return ack({ ok: false, code: 'ACTIVE_LOCAL_GAME', message: 'Bạn đang có một ván cùng máy. Hãy thoát ván đó trước.' });
+      const parsed = cotuongLocalCreateSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Thông tin ván cùng máy chưa hợp lệ.' });
+      idempotentRequest(socket, parsed.data.actionId, parsed.data, ack, () => {
+        const result = localCotuong.create(parsed.data, socket.id);
+        socket.data.activeLocalCotuong = result.credentials.localSessionId;
+        return { ok: true, credentials: result.credentials, game: result.game, avatars: result.avatars };
+      });
+    });
+    socket.on('cotuong:local:resume', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      if (socket.data.activeSession) return ack({ ok: false, code: 'ACTIVE_ROOM', message: 'Hãy rời phòng online trước khi nối lại ván cùng máy.' });
+      const parsed = cotuongLocalResumeSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Thông tin nối lại ván cùng máy chưa hợp lệ.' });
+      if (socket.data.activeLocalCotuong && socket.data.activeLocalCotuong !== parsed.data.localSessionId) return ack({ ok: false, code: 'ACTIVE_LOCAL_GAME', message: 'Bạn đang điều khiển một ván cùng máy khác. Hãy thoát ván đó trước.' });
+      try {
+        const result = localCotuong.resume(parsed.data.localSessionId, parsed.data.token, socket.id);
+        socket.data.activeLocalCotuong = parsed.data.localSessionId;
+        ack({ ok: true, game: result.game, avatars: result.avatars });
+      } catch (error) { ack(failure(error)); }
+    });
+    socket.on('cotuong:local:action', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      const parsed = cotuongLocalActionSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Nước đi Cờ tướng chưa hợp lệ.' });
+      if (socket.data.activeLocalCotuong !== parsed.data.localSessionId) return ack({ ok: false, code: 'LOCAL_SESSION_REPLACED', message: 'Phiên này không còn quyền điều khiển ván cùng máy.' });
+      idempotentRequest(socket, parsed.data.actionId, parsed.data, ack, () => {
+        const result = localCotuong.action(parsed.data, socket.id);
+        return { ok: true, actionId: parsed.data.actionId, game: result.game, avatars: result.avatars };
+      });
+    });
+    socket.on('cotuong:local:new-game', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      const parsed = cotuongLocalNewGameSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Yêu cầu chơi lại chưa hợp lệ.' });
+      if (socket.data.activeLocalCotuong !== parsed.data.localSessionId) return ack({ ok: false, code: 'LOCAL_SESSION_REPLACED', message: 'Phiên này không còn quyền điều khiển ván cùng máy.' });
+      idempotentRequest(socket, parsed.data.actionId, parsed.data, ack, () => {
+        const result = localCotuong.newGame(parsed.data.localSessionId, parsed.data.token, socket.id, parsed.data.expectedRevision, parsed.data.redPlayerStarts);
+        return { ok: true, actionId: parsed.data.actionId, game: result.game, avatars: result.avatars };
+      });
+    });
+    socket.on('cotuong:local:leave', (raw: unknown, ack: Ack = () => {}) => {
+      if (!allowEvent(socket.id, ack)) return;
+      const parsed = cotuongLocalResumeSchema.safeParse(raw);
+      if (!parsed.success) return ack({ ok: false, code: 'INVALID_PAYLOAD', message: 'Yêu cầu đóng ván chưa hợp lệ.' });
+      try { localCotuong.leave(parsed.data.localSessionId, parsed.data.token, socket.id); delete socket.data.activeLocalCotuong; ack({ ok: true }); }
+      catch (error) { ack(failure(error)); }
+    });
     socket.on('noitu:draft', (raw: unknown, ack: Ack = () => {}) => {
       if (!allowEvent(socket.id, ack)) return;
       const parsed = noituDraftSchema.safeParse(raw);
@@ -347,6 +420,7 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     });
     socket.on('disconnect', () => {
       eventLimits.delete(socket.id);
+      if (socket.data.activeLocalCotuong) localCotuong.disconnect(socket.data.activeLocalCotuong, socket.id);
       const session = socket.data.activeSession;
       if (!session) return;
       bantauActionLimits.delete(session.playerId);
@@ -402,11 +476,11 @@ export function createRealtimeServer(options: { serveWeb?: boolean; roomService?
     }
     if (pathname === '/api/games' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key), settingsDefaults: DEFAULT_GAME_SETTINGS[game.key], options: { turnSeconds: [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(game.key === 'uno' ? { stacking: [true, false] } : {}), ...(game.key === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}), ...(game.key === 'bantau' ? { boardSizes: [8, 10, 12], shipCounts: [3, 4, 5], hitContinues: [true, false], allowTouch: [true, false] } : {}) } })))); return;
+      res.end(JSON.stringify(Object.values(GAME_CATALOG).map((game) => ({ ...game, available: roomService.gameAvailable(game.key), settingsDefaults: DEFAULT_GAME_SETTINGS[game.key], options: { turnSeconds: game.key === 'cotuong' ? [] : [15, 30, 45, 60], targetScorePresets: [10, 30, 50, 100], targetScoreMin: 10, targetScoreMax: 500, targetScoreStep: 10, ...(game.key === 'uno' ? { stacking: [true, false] } : {}), ...(game.key === 'caro' ? { boardSizes: [9, 15, 19], winLengths: [4, 5, 6] } : {}), ...(game.key === 'bantau' ? { boardSizes: [8, 10, 12], shipCounts: [3, 4, 5], hitContinues: [true, false], allowTouch: [true, false] } : {}), ...(game.key === 'cotuong' ? { baseMinutes: [5, 10, 15], incrementSeconds: [0, 3, 5], redSides: ['random', 'host-red'] } : {}) } })))); return;
     }
     if (pathname.startsWith('/api/')) { res.writeHead(404, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ok: false, message: 'Không tìm thấy API.' })); }
   });
-  return { http, io, rooms: roomService };
+  return { http, io, rooms: roomService, localCotuong };
 }
 
 if (process.env.NODE_ENV !== 'test') {
@@ -414,7 +488,7 @@ if (process.env.NODE_ENV !== 'test') {
   const host = process.env.HOST ?? '0.0.0.0';
   const port = Number(process.env.PORT ?? 3001);
   app.http.listen(port, host, () => console.log('Hội Quậy server đang chạy tại http://' + host + ':' + port));
-  const close = () => { app.rooms.destroyAll(); app.io.close(); };
+  const close = () => { app.rooms.destroyAll(); app.localCotuong.destroyAll(); app.io.close(); };
   process.on('SIGINT', close); process.on('SIGTERM', close);
 }
 

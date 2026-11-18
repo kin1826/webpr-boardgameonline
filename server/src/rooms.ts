@@ -1,9 +1,10 @@
 import { createHash, randomBytes, randomInt as cryptoRandomInt, randomUUID, timingSafeEqual } from 'node:crypto';
-import { DEFAULT_GAME_SETTINGS, GAME_CATALOG, type BantauActionPayload, type CaroActionPayload, type GameKey, type GameSettings, type NoituActionPayload, type NoituDraftNotice, type NoituDraftPayload, type RoomPhase, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type PublicRoomSummary, type RoomClosedPayload } from '@banban/shared';
+import { DEFAULT_GAME_SETTINGS, GAME_CATALOG, type BantauActionPayload, type CaroActionPayload, type CotuongActionPayload, type GameKey, type GameSettings, type NoituActionPayload, type NoituDraftNotice, type NoituDraftPayload, type RoomPhase, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type PublicRoomSummary, type RoomClosedPayload } from '@banban/shared';
 import { applyGameAction, createGame, expireUnoDeadline, pauseUnoGame, projectGame, resumeUnoGame, type UnoState, type UnoIntent } from '@banban/uno';
 import { applyNoituAction, createNoituGame, expireNoituDeadline, pauseNoituGame, projectNoituGame, resumeNoituGame, type NoituDictionary, type NoituIntent, type NoituState } from '@banban/noitu';
 import { applyCaroAction, createCaroGame, expireCaroDeadline, pauseCaroGame, projectCaroGame, resumeCaroGame, type CaroIntent, type CaroState } from '@banban/caro';
 import { advanceBantauResolution, applyBantauPlacement, createBantauGame, expireBantauSetup, expireBantauTurn, fireBantau, lockBantauFleet, pauseBantauGame, projectBantauGame, resignBantau, resumeBantauGame, setBantauAim, BANTAU_ROUND_LIMIT_MS, type BantauEffect, type BantauPlacementIntent, type BantauState } from '@banban/bantau';
+import { applyCotuongAction, createCotuongGame, expireCotuongDeadline, pauseCotuongGame, projectCotuongGame, resumeCotuongGame, type CotuongState } from '@banban/cotuong';
 
 export class RoomError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'RoomError'; }
@@ -16,11 +17,11 @@ type Room = {
   id: string; code: string; gameKey: GameKey; visibility: RoomVisibility; phase: RoomPhase; revision: number;
   settings: GameSettings;
   match: null | { id: string; status: 'active' | 'intermission' | 'finished'; targetScore: number; roundNumber: number; scores: Map<string, number>; winnerId: string | null; nextRoundAt: number | null; remainingMs: number | null; lastRound: null | { roundNumber: number; winnerId: string | null; reason: string; points: 0 | 10 }; settledGameId: string | null };
-  hostId: string; players: Map<string, Seat>; game: UnoState | null; noituGame: NoituState | null; caroGame: CaroState | null; bantauGame: BantauState | null; notice: string | null;
+  hostId: string; players: Map<string, Seat>; game: UnoState | null; noituGame: NoituState | null; caroGame: CaroState | null; bantauGame: BantauState | null; cotuongGame: CotuongState | null; notice: string | null;
   caroWinLength: 4 | 5 | 6;
-  caroPreviousPair: [string, string] | null; caroPreviousXId: string | null; bantauPreviousFirstPlayerId: string | null;
+  caroPreviousPair: [string, string] | null; caroPreviousXId: string | null; bantauPreviousFirstPlayerId: string | null; cotuongPreviousRedPlayerId: string | null;
   createdAt: number; lastActivity: number; pauseStartedAt: number | null; offlineTimers: Set<ReturnType<typeof setTimeout>>;
-  noituTimer?: ReturnType<typeof setTimeout>; caroTimer?: ReturnType<typeof setTimeout>; unoTimer?: ReturnType<typeof setTimeout>; bantauTimer?: ReturnType<typeof setTimeout>; bantauRoundTimer?: ReturnType<typeof setTimeout>; bantauRoundDeadlineAt: number | null; bantauRoundRemainingMs: number | null; intermissionTimer?: ReturnType<typeof setTimeout>; noituDraft: NoituDraftNotice | null;
+  noituTimer?: ReturnType<typeof setTimeout>; caroTimer?: ReturnType<typeof setTimeout>; unoTimer?: ReturnType<typeof setTimeout>; bantauTimer?: ReturnType<typeof setTimeout>; cotuongTimer?: ReturnType<typeof setTimeout>; bantauRoundTimer?: ReturnType<typeof setTimeout>; bantauRoundDeadlineAt: number | null; bantauRoundRemainingMs: number | null; intermissionTimer?: ReturnType<typeof setTimeout>; noituDraft: NoituDraftNotice | null;
   noituDraftTurnId: string | null; noituDraftSequence: number; noituDraftUpdatedAt: number;
 };
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -75,7 +76,7 @@ export class RoomService {
     const roomSettings = settings ?? DEFAULT_GAME_SETTINGS[gameKey];
     if (roomSettings.gameKey !== gameKey) throw new RoomError('INVALID_SETTINGS', 'Cấu hình không khớp với trò chơi đã chọn.');
     const id = randomUUID(); const code = this.makeCode(); const { seat, token } = this.makeSeat(nickname, socketId, avatarId);
-    const room: Room = { id, code, gameKey, visibility, phase: 'waiting', revision: 0, settings: roomSettings, match: null, hostId: seat.id, players: new Map([[seat.id, seat]]), game: null, noituGame: null, caroGame: null, bantauGame: null, notice: null, caroWinLength: gameKey === 'caro' && roomSettings.gameKey === 'caro' ? roomSettings.winLength : 5, caroPreviousPair: null, caroPreviousXId: null, bantauPreviousFirstPlayerId: null, bantauRoundDeadlineAt: null, bantauRoundRemainingMs: null, createdAt: this.now(), lastActivity: this.now(), pauseStartedAt: null, offlineTimers: new Set(), noituDraft: null, noituDraftTurnId: null, noituDraftSequence: 0, noituDraftUpdatedAt: 0 };
+    const room: Room = { id, code, gameKey, visibility, phase: 'waiting', revision: 0, settings: roomSettings, match: null, hostId: seat.id, players: new Map([[seat.id, seat]]), game: null, noituGame: null, caroGame: null, bantauGame: null, cotuongGame: null, notice: null, caroWinLength: gameKey === 'caro' && roomSettings.gameKey === 'caro' ? roomSettings.winLength : 5, caroPreviousPair: null, caroPreviousXId: null, bantauPreviousFirstPlayerId: null, cotuongPreviousRedPlayerId: null, bantauRoundDeadlineAt: null, bantauRoundRemainingMs: null, createdAt: this.now(), lastActivity: this.now(), pauseStartedAt: null, offlineTimers: new Set(), noituDraft: null, noituDraftTurnId: null, noituDraftSequence: 0, noituDraftUpdatedAt: 0 };
     this.rooms.set(id, room); this.byCode.set(code, id);
     return { room, seat, credentials: { roomId: id, roomCode: code, playerId: seat.id, token } };
   }
@@ -93,9 +94,9 @@ export class RoomService {
     return [...this.rooms.values()].filter((room) => room.visibility === 'public' && room.phase === 'waiting' && room.players.size < GAME_CATALOG[room.gameKey].maxPlayers)
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(0, 100)
-      .map((room) => ({ code: room.code, gameKey: room.gameKey, visibility: 'public', hostName: room.players.get(room.hostId)?.nickname ?? 'Chủ phòng', hostAvatarId: room.players.get(room.hostId)?.avatarId ?? 0, playerCount: room.players.size, maxPlayers: GAME_CATALOG[room.gameKey].maxPlayers, phase: 'waiting', turnSeconds: room.settings.turnSeconds, targetScore: room.settings.targetScore, settings: room.settings }));
+      .map((room) => ({ code: room.code, gameKey: room.gameKey, visibility: 'public', hostName: room.players.get(room.hostId)?.nickname ?? 'Chủ phòng', hostAvatarId: room.players.get(room.hostId)?.avatarId ?? 0, playerCount: room.players.size, maxPlayers: GAME_CATALOG[room.gameKey].maxPlayers, phase: 'waiting', ...(room.settings.gameKey !== 'cotuong' ? { turnSeconds: room.settings.turnSeconds } : {}), targetScore: room.settings.targetScore, settings: room.settings }));
   }
-  gameAvailable(gameKey: GameKey) { return gameKey === 'uno' || gameKey === 'caro' || gameKey === 'bantau' || Boolean(this.options.noitu); }
+  gameAvailable(gameKey: GameKey) { return gameKey === 'uno' || gameKey === 'caro' || gameKey === 'bantau' || gameKey === 'cotuong' || Boolean(this.options.noitu); }
   getRoom(roomId: string) { const room = this.rooms.get(roomId); if (!room) throw new RoomError('ROOM_NOT_FOUND', 'Phòng không còn tồn tại.'); return room; }
   getSeat(room: Room, playerId: string) { const seat = room.players.get(playerId); if (!seat) throw new RoomError('SESSION_REVOKED', 'Ghế của bạn không còn trong phòng.'); return seat; }
   verifySession(roomId: string, playerId: string, token: string) {
@@ -115,6 +116,7 @@ export class RoomService {
       if (room.phase === 'playing' && room.noituGame) { room.noituGame = resumeNoituGame(room.noituGame, this.now()); this.scheduleNoituDeadline(room); }
       if (room.phase === 'playing' && room.caroGame) { room.caroGame = resumeCaroGame(room.caroGame, this.now()); this.scheduleCaroDeadline(room); }
       if (room.phase === 'playing' && room.bantauGame) { room.bantauGame = resumeBantauGame(room.bantauGame, this.now()); this.scheduleBantauDeadline(room); this.scheduleBantauRoundLimit(room, room.bantauRoundRemainingMs ?? BANTAU_ROUND_LIMIT_MS); }
+      if (room.phase === 'playing' && room.cotuongGame) { room.cotuongGame = resumeCotuongGame(room.cotuongGame, this.now()); this.scheduleCotuongDeadline(room); }
       if (room.match?.status === 'intermission' && room.match.remainingMs !== null) this.scheduleNextRound(room, room.match.remainingMs);
       this.clearNoituDraft(room);
     }
@@ -129,6 +131,7 @@ export class RoomService {
     if (room.phase === 'playing' && room.caroGame && room.pauseStartedAt === null) this.resolveCaroDeadline(room);
     if (room.phase === 'playing' && room.game && room.pauseStartedAt === null) this.resolveUnoDeadline(room);
     if (room.phase === 'playing' && room.bantauGame && room.pauseStartedAt === null) this.resolveBantauDeadline(room);
+    if (room.phase === 'playing' && room.cotuongGame && room.pauseStartedAt === null) this.resolveCotuongDeadline(room);
     seat.socketId = null; seat.online = false;
     if (room.phase === 'waiting') seat.ready = false;
     if ((room.phase === 'playing' || room.match?.status === 'intermission') && room.pauseStartedAt === null) {
@@ -147,6 +150,7 @@ export class RoomService {
         room.bantauRoundDeadlineAt = null;
         this.clearBantauRoundLimit(room);
       }
+      if (room.phase === 'playing' && room.cotuongGame) { room.cotuongGame = pauseCotuongGame(room.cotuongGame, this.now()); this.clearCotuongDeadline(room); }
     }
     this.bump(room);
     seat.graceTimer = setTimeout(() => {
@@ -206,16 +210,20 @@ export class RoomService {
     const gameId = randomUUID();
     if (room.gameKey === 'noitu') {
       if (!this.options.noitu) throw new RoomError('DICTIONARY_NOT_READY', 'Từ điển thử nghiệm chưa sẵn sàng. Nối từ chưa thể bắt đầu; UNO vẫn hoạt động.');
+      const settings = room.settings;
+      if (settings.gameKey !== 'noitu') throw new RoomError('WRONG_GAME_SETTINGS', 'Cấu hình phòng không khớp với Nối từ.');
       try {
-        room.noituGame = createNoituGame({ gameId, players: seats.map(({ id, nickname }) => ({ id, nickname })), dictionary: this.options.noitu.dictionary, seedWords: this.options.noitu.seedWords, randomInt: (max) => this.random(max), now: this.now(), turnDurationMs: room.settings.turnSeconds * 1000 });
+        room.noituGame = createNoituGame({ gameId, players: seats.map(({ id, nickname }) => ({ id, nickname })), dictionary: this.options.noitu.dictionary, seedWords: this.options.noitu.seedWords, randomInt: (max) => this.random(max), now: this.now(), turnDurationMs: settings.turnSeconds * 1000 });
         room.game = null;
       } catch (error) { if (error instanceof Error && 'code' in error) throw new RoomError(String(error.code), error.message); throw error; }
     } else if (room.gameKey === 'caro') {
       const pair = seats.map((player) => player.id).sort() as [string, string];
+      const settings = room.settings;
+      if (settings.gameKey !== 'caro') throw new RoomError('WRONG_GAME_SETTINGS', 'Cấu hình phòng không khớp với Caro.');
       const samePair = room.caroPreviousPair?.[0] === pair[0] && room.caroPreviousPair?.[1] === pair[1];
       const xPlayerId = samePair && room.caroPreviousXId ? pair.find((id) => id !== room.caroPreviousXId) : undefined;
       try {
-        room.caroGame = createCaroGame({ gameId, winLength: room.caroWinLength, boardSize: room.settings.gameKey === 'caro' ? room.settings.boardSize : 15, turnDurationMs: room.settings.turnSeconds * 1000, players: seats.map(({ id, nickname }) => ({ id, nickname })), randomInt: (max) => this.random(max), now: this.now(), ...(xPlayerId ? { xPlayerId } : {}) });
+        room.caroGame = createCaroGame({ gameId, winLength: room.caroWinLength, boardSize: settings.boardSize, turnDurationMs: settings.turnSeconds * 1000, players: seats.map(({ id, nickname }) => ({ id, nickname })), randomInt: (max) => this.random(max), now: this.now(), ...(xPlayerId ? { xPlayerId } : {}) });
         room.caroPreviousPair = pair;
         room.caroPreviousXId = room.caroGame.players.find((player) => player.symbol === 'X')!.id;
         room.game = null; room.noituGame = null;
@@ -235,17 +243,36 @@ export class RoomService {
         room.bantauPreviousFirstPlayerId = firstPlayerId;
         room.game = null; room.noituGame = null; room.caroGame = null;
       } catch (error) { if (error instanceof Error && 'code' in error) throw new RoomError(String(error.code), error.message); throw error; }
+    } else if (room.gameKey === 'cotuong') {
+      const settings = room.settings;
+      if (settings.gameKey !== 'cotuong' || seats.length !== 2) throw new RoomError('PLAYER_COUNT', 'Cờ tướng cần đúng hai người chơi.');
+      const redPlayerId = room.cotuongPreviousRedPlayerId && seats.some((seat) => seat.id === room.cotuongPreviousRedPlayerId)
+        ? seats.find((seat) => seat.id !== room.cotuongPreviousRedPlayerId)!.id
+        : settings.redSide === 'host-red' ? room.hostId : undefined;
+      try {
+        room.cotuongGame = createCotuongGame({
+          gameId, players: seats.map(({ id, nickname }) => ({ id, nickname })),
+          randomInt: (max) => this.random(max), now: this.now(),
+          ...(redPlayerId ? { redPlayerId } : {}),
+          clock: { initialMs: settings.baseMinutes * 60_000, incrementMs: settings.incrementSeconds * 1000 },
+        });
+        room.cotuongPreviousRedPlayerId = room.cotuongGame.players.find((player) => player.side === 'red')!.id;
+        room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null;
+      } catch (error) { if (error instanceof Error && 'code' in error) throw new RoomError(String(error.code), error.message); throw error; }
     } else {
+      const settings = room.settings;
+      if (settings.gameKey !== 'uno') throw new RoomError('WRONG_GAME_SETTINGS', 'Cấu hình phòng không khớp với UNO.');
       room.noituGame = null;
       room.caroGame = null;
       room.bantauGame = null;
-      room.game = createGame({ gameId, players: seats.map(({ id, nickname }) => ({ id, nickname })), randomInt: (max) => this.random(max), now: this.now(), turnDurationMs: room.settings.turnSeconds * 1000, stacking: room.settings.gameKey === 'uno' ? room.settings.stacking : true });
+      room.game = createGame({ gameId, players: seats.map(({ id, nickname }) => ({ id, nickname })), randomInt: (max) => this.random(max), now: this.now(), turnDurationMs: settings.turnSeconds * 1000, stacking: settings.stacking });
     }
     room.phase = 'playing'; room.notice = null; room.pauseStartedAt = null; this.clearNoituDraft(room);
     if (room.game) this.scheduleUnoDeadline(room);
     if (room.noituGame) this.scheduleNoituDeadline(room);
     if (room.caroGame) this.scheduleCaroDeadline(room);
     if (room.bantauGame) { this.scheduleBantauDeadline(room); this.scheduleBantauRoundLimit(room, BANTAU_ROUND_LIMIT_MS); }
+    if (room.cotuongGame) this.scheduleCotuongDeadline(room);
     this.bump(room);
   }
   gameAction(room: Room, actor: Seat, expectedRevision: number, action: UnoIntent) {
@@ -289,6 +316,23 @@ export class RoomService {
     catch (error) { if (error instanceof Error && 'code' in error) throw new RoomError(String(error.code), error.message); throw error; }
     if (room.caroGame.phase === 'finished') { this.clearCaroDeadline(room); this.settleRound(room, room.caroGame.winnerId, room.caroGame.finishReason ?? 'finished', room.caroGame.gameId); }
     else this.scheduleCaroDeadline(room);
+    this.bump(room);
+  }
+  cotuongAction(room: Room, actor: Seat, expectedRevision: number, action: CotuongActionPayload) {
+    if (room.gameKey !== 'cotuong' || !room.cotuongGame || room.cotuongGame.gameId !== action.gameId) throw new RoomError('STALE_GAME', 'Ván Cờ tướng đã thay đổi. Hãy đồng bộ bàn cờ.');
+    if (room.phase !== 'playing') throw new RoomError('NOT_PLAYING', 'Phòng hiện không có ván đang chơi.');
+    if (room.pauseStartedAt !== null) throw new RoomError('GAME_PAUSED', 'Ván đang tạm dừng, chờ người chơi kết nối lại.');
+    if (this.resolveCotuongDeadline(room)) throw new RoomError('ACTION_EXPIRED', 'Đồng hồ đã hết. Bàn cờ đã cập nhật kết quả.');
+    if (room.revision !== expectedRevision) throw new RoomError('STALE_REVISION', 'Trạng thái đã đổi. Bàn cờ đang được làm mới.');
+    const { actionId: _actionId, roomId: _roomId, expectedRevision: _expectedRevision, gameId: _gameId, ...intent } = action;
+    void _actionId; void _roomId; void _expectedRevision; void _gameId;
+    try { room.cotuongGame = applyCotuongAction(room.cotuongGame, actor.id, intent, this.now()); }
+    catch (error) { if (error instanceof Error && 'code' in error) throw new RoomError(String(error.code), error.message); throw error; }
+    if (room.cotuongGame.phase === 'finished') {
+      this.clearCotuongDeadline(room);
+      const winner = room.cotuongGame.winnerSide ? room.cotuongGame.players.find((player) => player.side === room.cotuongGame!.winnerSide)?.id ?? null : null;
+      this.settleRound(room, winner, room.cotuongGame.finishReason ?? 'finished', room.cotuongGame.gameId);
+    } else this.scheduleCotuongDeadline(room);
     this.bump(room);
   }
   bantauPlacement(room: Room, actor: Seat, gameId: string, setupId: string, expectedFleetRevision: number, intent: BantauPlacementIntent) {
@@ -359,8 +403,8 @@ export class RoomService {
   rematch(room: Room, actor: Seat) {
     this.requireHost(room, actor); this.requirePhase(room, 'finished');
     if (room.match?.status !== 'finished') throw new RoomError('MATCH_NOT_FINISHED', 'Trận vẫn đang diễn ra.');
-    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
-    room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null; room.match = null; room.phase = 'waiting'; room.notice = null; room.pauseStartedAt = null;
+    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearCotuongDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
+    room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.cotuongGame = null; room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null; room.match = null; room.phase = 'waiting'; room.notice = null; room.pauseStartedAt = null;
     for (const seat of room.players.values()) seat.ready = false;
     this.bump(room);
   }
@@ -412,6 +456,10 @@ export class RoomService {
     if (room.gameKey === 'bantau') return {
       ...common, gameKey: 'bantau', settings: room.settings as Extract<GameSettings, { gameKey: 'bantau' }>,
       game: room.bantauGame ? projectBantauGame(room.bantauGame, viewerId, this.now(), room.pauseStartedAt !== null) : null,
+    };
+    if (room.gameKey === 'cotuong') return {
+      ...common, gameKey: 'cotuong', settings: room.settings as Extract<GameSettings, { gameKey: 'cotuong' }>,
+      game: room.cotuongGame ? projectCotuongGame(room.cotuongGame, viewerId, this.now(), room.pauseStartedAt !== null) : null,
     };
     return { ...common, gameKey: 'uno', settings: room.settings as Extract<GameSettings, { gameKey: 'uno' }>, game: room.game ? projectGame(room.game, viewerId, this.now(), room.pauseStartedAt !== null) : null };
   }
@@ -476,7 +524,7 @@ export class RoomService {
     if (points && winnerId) match.scores.set(winnerId, (match.scores.get(winnerId) ?? 0) + points);
     match.lastRound = { roundNumber: match.roundNumber, winnerId, reason: reason.slice(0, 40), points };
     room.phase = 'finished';
-    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearBantauRoundLimit(room); room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null; this.clearNoituDraft(room);
+    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearCotuongDeadline(room); this.clearBantauRoundLimit(room); room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null; this.clearNoituDraft(room);
     if (winnerId && (match.scores.get(winnerId) ?? 0) >= match.targetScore) {
       match.status = 'finished'; match.winnerId = winnerId; match.nextRoundAt = null; match.remainingMs = null;
       room.notice = `${room.players.get(winnerId)?.nickname ?? 'Người chơi'} đã thắng trận!`;
@@ -487,8 +535,8 @@ export class RoomService {
     }
   }
   private cancelMatch(room: Room, message: string) {
-    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
-    room.match = null; room.phase = 'waiting'; room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null;
+    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearCotuongDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
+    room.match = null; room.phase = 'waiting'; room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.cotuongGame = null; room.bantauRoundDeadlineAt = null; room.bantauRoundRemainingMs = null;
     room.notice = message; room.pauseStartedAt = null;
     for (const player of room.players.values()) player.ready = false;
   }
@@ -509,6 +557,32 @@ export class RoomService {
     room.noituTimer.unref?.();
   }
   private clearCaroDeadline(room: Room) { if (room.caroTimer) clearTimeout(room.caroTimer); room.caroTimer = undefined; }
+  private clearCotuongDeadline(room: Room) { if (room.cotuongTimer) clearTimeout(room.cotuongTimer); room.cotuongTimer = undefined; }
+  private scheduleCotuongDeadline(room: Room) {
+    this.clearCotuongDeadline(room);
+    if (room.phase !== 'playing' || room.pauseStartedAt !== null || !room.cotuongGame || room.cotuongGame.phase !== 'turn' || room.cotuongGame.clock?.deadlineAt === null || !room.cotuongGame.clock) return;
+    const { gameId, turnId, deadlineAt } = { gameId: room.cotuongGame.gameId, turnId: room.cotuongGame.turnId, deadlineAt: room.cotuongGame.clock.deadlineAt };
+    room.cotuongTimer = setTimeout(() => this.expireCotuongTimer(room.id, gameId, turnId, deadlineAt), Math.max(0, deadlineAt - this.now()));
+    room.cotuongTimer.unref?.();
+  }
+  private expireCotuongTimer(roomId: string, gameId: string, turnId: string, deadlineAt: number) {
+    const room = this.rooms.get(roomId); const current = room?.cotuongGame;
+    if (!room || room.phase !== 'playing' || room.pauseStartedAt !== null || !current || current.gameId !== gameId || current.turnId !== turnId || current.clock?.deadlineAt !== deadlineAt || this.now() < deadlineAt) return;
+    const next = expireCotuongDeadline(current, this.now());
+    if (!next) return;
+    room.cotuongGame = next; this.clearCotuongDeadline(room);
+    const winner = next.winnerSide ? next.players.find((player) => player.side === next.winnerSide)?.id ?? null : null;
+    this.settleRound(room, winner, next.finishReason ?? 'timeout', gameId); this.bump(room); this.options.onChanged?.(room.id);
+  }
+  private resolveCotuongDeadline(room: Room): boolean {
+    if (!room.cotuongGame || room.phase !== 'playing' || room.pauseStartedAt !== null) return false;
+    const next = expireCotuongDeadline(room.cotuongGame, this.now());
+    if (!next) return false;
+    room.cotuongGame = next; this.clearCotuongDeadline(room);
+    const winner = next.winnerSide ? next.players.find((player) => player.side === next.winnerSide)?.id ?? null : null;
+    this.settleRound(room, winner, next.finishReason ?? 'timeout', next.gameId); this.bump(room); this.options.onChanged?.(room.id);
+    return true;
+  }
   private scheduleCaroDeadline(room: Room) {
     this.clearCaroDeadline(room);
     if (room.phase !== 'playing' || room.pauseStartedAt !== null || !room.caroGame || room.caroGame.phase !== 'turn' || room.caroGame.turnDeadlineAt === null) return;
@@ -648,9 +722,9 @@ export class RoomService {
     const now = this.now();
     for (const room of [...this.rooms.values()]) {
       if (room.phase === 'waiting' && now - room.lastActivity >= WAITING_TTL_MS) this.destroy(room, 'expired');
-      else if (room.phase === 'playing' && room.gameKey !== 'bantau' && now - room.lastActivity >= 15 * 60_000) {
+      else if (room.phase === 'playing' && room.gameKey !== 'bantau' && room.gameKey !== 'cotuong' && now - room.lastActivity >= 15 * 60_000) {
         this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearNoituDraft(room);
-        room.phase = 'waiting'; room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.notice = 'Ván bị hủy vì không có lượt chơi trong 15 phút.'; room.pauseStartedAt = null;
+        room.phase = 'waiting'; room.game = null; room.noituGame = null; room.caroGame = null; room.bantauGame = null; room.cotuongGame = null; room.notice = 'Ván bị hủy vì không có lượt chơi trong 15 phút.'; room.pauseStartedAt = null;
         for (const seat of room.players.values()) seat.ready = false;
         this.bump(room); this.options.onChanged?.(room.id);
       }
@@ -660,7 +734,7 @@ export class RoomService {
     }
   }
   private destroy(room: Room, reason: RoomClosedPayload['reason'] = 'empty') {
-    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
+    this.clearUnoDeadline(room); this.clearNoituDeadline(room); this.clearCaroDeadline(room); this.clearBantauDeadline(room); this.clearCotuongDeadline(room); this.clearBantauRoundLimit(room); this.clearNextRound(room); this.clearNoituDraft(room);
     const message = reason === 'expired' ? 'Phòng đã đóng vì hết thời gian chờ.' : reason === 'shutdown' ? 'Máy chủ đang khởi động lại; phòng đã đóng.' : 'Phòng không còn người chơi.';
     this.options.onClosed?.({ roomId: room.id, reason, message }, [...room.players.values()].flatMap((player) => player.socketId ? [player.socketId] : []));
     for (const player of room.players.values()) if (player.graceTimer) clearTimeout(player.graceTimer);

@@ -1,4 +1,4 @@
-export type SoundCue = 'tap' | 'card' | 'penalty' | 'receive' | 'type' | 'delete' | 'reject' | 'mark' | 'win' | 'water' | 'impact' | 'ship-sunk' | 'bantau-launch';
+export type SoundCue = 'tap' | 'card' | 'penalty' | 'receive' | 'type' | 'delete' | 'reject' | 'mark' | 'win' | 'water' | 'impact' | 'ship-sunk' | 'bantau-launch' | 'cotuong-move' | 'cotuong-capture' | 'cotuong-check';
 
 let context: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -42,6 +42,13 @@ function getContext() {
   return context;
 }
 
+/** Resume the shared audio context during a direct user gesture so later server-confirmed cues can play. */
+export function unlockSoundEffects() {
+  if (!soundEffectsEnabled() || document.visibilityState === 'hidden') return;
+  const ctx = getContext();
+  if (ctx?.state === 'suspended') void ctx.resume().catch(() => undefined);
+}
+
 function trackVoice(source: AudioScheduledSourceNode, cue: SoundCue) {
   activeVoices.set(source, cue);
   source.addEventListener('ended', () => activeVoices.delete(source), { once: true });
@@ -80,9 +87,9 @@ export function playSound(cue: SoundCue, strength = 4) {
   const now = performance.now();
   const minimumGap = cue === 'type' || cue === 'delete' ? 65 : 24;
   if (now - (lastCueAt.get(cue) ?? 0) < minimumGap) return;
-  const requiredVoices = cue === 'card' || cue === 'reject' || cue === 'delete' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' ? 2 : cue === 'win' ? 3 : 1;
+  const requiredVoices = cue === 'card' || cue === 'reject' || cue === 'delete' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture' ? 2 : cue === 'win' ? 3 : 1;
   if ((cue === 'type' || cue === 'delete') && activeVoices.size + requiredVoices > 5) return;
-  if (cue === 'card' || cue === 'reject' || cue === 'win' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch') {
+  if (cue === 'card' || cue === 'reject' || cue === 'win' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture') {
     for (const [source, activeCue] of activeVoices) {
       if (activeCue === 'type' || activeCue === 'delete') {
         try { source.stop(); } catch { /* Already ended. */ }
@@ -140,6 +147,17 @@ export function playSound(cue: SoundCue, strength = 4) {
     case 'bantau-launch':
       noise(ctx, cue, .24, .045, 'bandpass', 1250);
       tone(ctx, cue, 420, .22, 'sawtooth', .025, 105);
+      break;
+    case 'cotuong-move':
+      tone(ctx, cue, 255, .075, 'triangle', .045, 150);
+      noise(ctx, cue, .035, .012, 'lowpass', 1450);
+      break;
+    case 'cotuong-capture':
+      tone(ctx, cue, 155, .145, 'triangle', .075, 52);
+      noise(ctx, cue, .09, .04, 'lowpass', 850);
+      break;
+    case 'cotuong-check':
+      tone(ctx, cue, 660, .085, 'sine', .032, 880);
       break;
   }
 }

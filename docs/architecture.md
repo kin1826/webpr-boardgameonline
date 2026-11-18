@@ -2,7 +2,7 @@
 
 > BB-UNO-1 (`uno-rules.md`) đã được triển khai. Engine dùng predicate chung cho server validation và `allowedActions` trong projection riêng từng người. Khoản phạt có tổng, loại cuối và người nhận. Đánh lá cuối hợp lệ chốt thắng ngay và xóa phạt đang chờ. Mọi thay đổi async/đóng phòng phát snapshot/event lifecycle; RAM vẫn mất khi process dừng.
 
-Trạng thái: UNO + Nối từ + Caro + Bắn tàu, một backend process, state trong RAM; Bắn tàu chờ Terra nghiệm thu độc lập.
+Trạng thái: năm game UNO, Nối từ, Caro, Bắn tàu và Cờ tướng trong working tree; một backend process, state trong RAM. Bắn tàu và Cờ tướng đang chờ Terra nghiệm thu độc lập.
 
 ## Các vùng code
 
@@ -15,11 +15,14 @@ Trạng thái: UNO + Nối từ + Caro + Bắn tàu, một backend process, stat
 | `src/api/client.ts` | Ghép HTTP và realtime client dùng chung một cấu hình backend. |
 | `src/components/` | Chỉnh biệt danh và chia sẻ link/mã; các thành phần Lucian #033 và #008 đã được port. |
 | `src/styles/` | Token giao diện, thành phần và layout responsive/reduced motion. |
-| `packages/shared/src/index.ts` | Catalog UNO/Nối từ/Caro/Bắn tàu, `RoomSnapshot` discriminated union và Zod schema runtime cho nickname, mã, phiên, room/game action/draft, cấu hình và kết quả trận. |
+| `packages/shared/src/index.ts` | Catalog năm game, `RoomSnapshot` discriminated union và Zod schema runtime cho nickname, mã, phiên, room/game action/draft, cấu hình và kết quả trận. |
 | `packages/uno/src/index.ts` | Deck, setup, state, luật, validation, transition và private projection; không nhập React/Socket.IO. |
 | `packages/noitu/src/index.ts` | Engine NT-VI-1 thuần TypeScript, dictionary interface, lượt/proposal/vote/timer state và public projection. |
 | `packages/caro/src/index.ts` | Engine HQ-CARO-1 thuần TypeScript: bàn 9/15/19, lượt, đúng mục tiêu 4/5/6 còn đầu mở, timeout/resign, tạm dừng và projection/capabilities. |
 | `packages/bantau/src/index.ts` | Engine HQ-BANTAU-1 thuần TypeScript: preset/sinh đội hình, placement, aim/fire, timeout, hit/miss/sunk, pause/resume và projection riêng. |
+| `packages/cotuong/src/index.ts` | Engine HQ-COTUONG-1 thuần TypeScript: setup 32 quân, nước hợp lệ/chiếu, hòa/lặp, đồng hồ và projection công khai. |
+| `server/src/cotuong-local.ts` | Phiên Cờ tướng cùng máy trong RAM; token hash, quyền điều khiển luân phiên, resume, revision và TTL. |
+| `src/cotuong/` | UI Cờ tướng cho online và cùng máy; chỉ nhận snapshot/capabilities, gửi intent qua API. |
 | `src/bantau/BantauTable.tsx` | Bàn/xếp tàu lấy snapshot, capabilities và ACK từ API; không tự quyết định vị trí hợp lệ, bắn hoặc kết quả. |
 | `src/caro/CaroTable.tsx` | Bàn Caro lấy snapshot/capabilities từ API; không chứa luật hoặc tự quyết định kết quả. |
 | `server/src/rooms.ts` | Room/session/match trong RAM, host, public/private, ready, start, kick/leave, reconnect, timer, chấm điểm, intermission/countdown và cleanup. |
@@ -42,6 +45,8 @@ Các event gồm `room:create`, `room:join`, `session:resume`, `room:ready`, `ro
 Nối từ dùng `noitu:action` cho submit/giveUp/vote và `noitu:draft` cho phần nhập tạm. Draft được xác thực theo socket/room/game/turn, sequence và rate limit; chỉ gửi trong room, không tăng revision và bị xóa khi đổi pha/lượt, pause hoặc cleanup. Voter, quorum, dictionary membership và deadline đều do engine/server quyết định.
 
 Caro dùng `caro:action` cho `place(row, col, turnId)` và `resign`. `RoomService` sở hữu timer cấu hình, deadline race, pause/resume và cleanup theo vòng đời phòng; engine nhận `now`, boardSize/winLength và RNG qua tham số. Action envelope có `actionId`, `roomId`, `gameId`, `expectedRevision`; server kiểm tra socket generation, revision, game, ghế, lượt và tọa độ theo board trước khi chuyển state. Bắn tàu dùng `bantau:placement` cho từng nước xếp tàu, `bantau:aim` cho nhắm, `bantau:action` cho khóa đội hình/bắn/chịu thua và `bantau:effect` cho hiệu ứng công khai; server giữ setup/turn/resolving timers, sequence aim theo người chơi, kiểm tra fleet, phát fire result riêng và settle điểm/trận đúng một lần. Availability và preset cấu hình mọi game được công bố qua `/api/games`.
+
+Cờ tướng online dùng `cotuong:action` với action ID, room/game ID, revision, turn ID và intent move/draw/resign. RoomService kiểm tra ghế, lượt, clock/deadline và gọi engine thuần trước khi settle. Snapshot chỉ gửi public board, lịch sử giới hạn và capabilities theo viewer; không nhận trạng thái/result/legal moves từ client. Cùng máy dùng `cotuong:local:create/resume/action/new-game/leave`, với phiên độc lập trong RAM và credential local; hai người đổi lượt trên cùng UI qua server, không tạo hai socket/ghế giả. Cùng máy vẫn cần backend và không phải mode offline. Contract, luật và QA ở [HQ-COTUONG-1](./cotuong-rules.md) và [hồ sơ triển khai](./reports/cotuong/summary.md).
 
 ## UNO
 

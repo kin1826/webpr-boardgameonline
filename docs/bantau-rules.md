@@ -1,6 +1,6 @@
 # Bắn tàu — HQ-BANTAU-1
 
-**Trạng thái: HQ-BANTAU-1 và đợt polish UI đã triển khai trong working tree; chờ Terra kiểm thử độc lập.** Chrome và Safari độc lập đã vào trận và kiểm tra aim/bắn/đổi lượt. Kéo thả trực tiếp, mobile thật, nghe sound trên iOS và ván thắng vẫn cần QA. Xem [báo cáo polish](./reports/bantau/09-polish-implementation.md) và [checklist Terra](./reports/bantau/10-polish-qa.md). Chưa deploy, chưa Terra approve. Không thay đổi luật hoặc hành vi UNO, Nối từ hay Caro. Tên hiển thị “Bắn tàu”, gameKey `bantau`. Phần dưới phân biệt nguồn tham khảo với biến thể Hội Quậy; không quảng bá biến thể là luật chính thức Hasbro.
+**Trạng thái: HQ-BANTAU-1 và đợt polish UI đã triển khai trong working tree; chờ Terra kiểm thử độc lập.** Chrome và Safari độc lập đã vào trận và kiểm tra aim/bắn/đổi lượt. Kéo thả trực tiếp, mobile thật, nghe sound trên iOS và ván thắng vẫn cần QA. Xem [báo cáo polish](./reports/bantau/summary.md) và [checklist Terra](./reports/bantau/summary.md). Chưa deploy, chưa Terra approve. Không thay đổi luật hoặc hành vi UNO, Nối từ hay Caro. Tên hiển thị “Bắn tàu”, gameKey `bantau`. Phần dưới phân biệt nguồn tham khảo với biến thể Hội Quậy; không quảng bá biến thể là luật chính thức Hasbro.
 
 ## 1. Nguồn tham khảo
 

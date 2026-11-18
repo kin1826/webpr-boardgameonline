@@ -44,10 +44,10 @@ Backend cần đặt `NODE_ENV=production` để tắt ngoại lệ CORS dành c
 
 ### Kiểm tra khi game báo chưa sẵn sàng
 
-- Mở `https://<domain-backend>/api/games`. Response cần có mục `"key":"bantau"` với `"available":true`.
+- Mở `https://<domain-backend>/api/games`. Response cần có các mục `"key":"bantau"` và `"key":"cotuong"` với `"available":true` nếu phiên bản deploy đã gồm hai game.
 - Nếu endpoint lỗi hoặc không tải được, kiểm tra `VITE_BACKEND_URL` trên frontend (nếu tách host), CORS `ALLOWED_ORIGINS`, HTTPS và trạng thái service; sau khi backend thức dậy, bấm **Thử kết nối lại** trên thẻ game.
-- Nếu endpoint trả thành công nhưng thiếu `bantau`, frontend đang gọi backend cũ. Deploy backend từ phiên bản chứa `packages/bantau` và `server/src/rooms.ts`, rồi build/deploy lại frontend tương ứng.
-- Nếu mục `bantau` có `"available":false`, backend đã trả lời nhưng đang tắt game; kiểm tra catalog/server hiện hành.
+- Nếu endpoint trả thành công nhưng thiếu một game, frontend đang gọi backend cũ. Deploy backend từ phiên bản có engine game đó trong `packages/` và nhánh tích hợp trong `server/src/rooms.ts`, rồi build/deploy lại frontend tương ứng.
+- Nếu một mục có `"available":false`, backend đã trả lời nhưng đang tắt game; kiểm tra catalog/server hiện hành.
 - Với một service Render phục vụ cả frontend lẫn backend cùng origin, để `VITE_BACKEND_URL` rỗng. Với frontend Vercel và backend riêng, đặt nó bằng origin HTTPS backend rồi build lại frontend.
 
 Host backend cần tiến trình Node chạy liên tục, HTTPS/WSS và hỗ trợ WebSocket upgrade trên `/socket.io`. Giữ nguyên một process/replica cùng dataset; restart/deploy làm mất phòng. `/health` dành cho health check host. Dev/LAN và production một process tiếp tục để `VITE_BACKEND_URL` trống.

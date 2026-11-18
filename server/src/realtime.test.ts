@@ -6,7 +6,7 @@ import { parseRoomSnapshot } from '@banban/shared';
 import type { UnoCard } from '@banban/uno';
 import type { NoituDictionary } from '@banban/noitu';
 
-type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; credentials?: { roomId: string; roomCode: string; playerId: string; token: string }; aim?: any };
+type Result = { ok: boolean; code?: string; message?: string; snapshot?: any; game?: any; credentials?: { roomId: string; roomCode: string; playerId: string; token: string }; aim?: any };
 function emitAck(socket: Socket, event: string, payload?: unknown): Promise<Result> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('ACK timeout: ' + event)), 3000);
@@ -53,6 +53,7 @@ afterEach(async () => {
   if (active) {
     const app = active; active = undefined;
     app.rooms.destroyAll();
+    app.localCotuong.destroyAll();
     await new Promise<void>(resolve => app.io.close(() => resolve()));
   }
 });
@@ -147,7 +148,8 @@ describe('Socket.IO với hai client riêng', () => {
     const currentPlayerId = gameViewA.currentPlayerId;
     const actor = currentPlayerId === credentials.playerId ? a : b;
     const effectEventsA: any[] = []; const effectEventsB: any[] = [];
-    a.on('game:effect', (event) => effectEventsA.push(event)); b.on('game:effect', (event) => effectEventsB.push(event));
+    a.on('game:effect', (event) => { if (event.actionType === 'play') effectEventsA.push(event); });
+    b.on('game:effect', (event) => { if (event.actionType === 'play') effectEventsB.push(event); });
     const gameActionId = crypto.randomUUID();
     const payload = { ...action(credentials.roomId,started.snapshot.revision), actionId:gameActionId, gameId:started.snapshot.game.gameId, type:'play', cardId:'fixture-a-red-5' };
     const first = await emitAck(actor,'game:action',payload);
@@ -342,6 +344,120 @@ it('hai socket chơi hết một ván shuffle production, bảo toàn 108 lá qu
   expect(steps).toBeLessThan(2000);expect(views[0].phase).toBe('finished');expect(views[1].game.winnerId).toBe(views[0].game.winnerId);
   console.log('Production-shuffle Socket.IO round:',steps,'actions, result:',views[0].game.finishReason);
 },30000);
+
+describe('Cờ tướng HQ-COTUONG-1 qua Socket.IO', () => {
+  const startServer = async () => {
+    active = createRealtimeServer({ serveWeb: false, roomService: new RoomService({ randomInt: () => 0 }) });
+    await new Promise<void>((resolve) => active!.http.listen(0, '127.0.0.1', resolve));
+    const address = active.http.address();
+    if (!address || typeof address === 'string') throw new Error('Không lấy được cổng test.');
+    const url = 'http://127.0.0.1:' + address.port;
+    const open = async () => {
+      const socket = connect(url, { forceNew: true, transports: ['websocket'], reconnection: false }); clients.push(socket);
+      await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('connect_error', reject); });
+      return socket;
+    };
+    return { open };
+  };
+
+  it('hai client độc lập tạo/join phòng, chặn sai lượt và chốt điểm do server', async () => {
+    const { open } = await startServer();
+    const host = await open(); const guest = await open();
+    let guestView: any;
+    guest.on('room:snapshot', (snapshot) => { guestView = snapshot; });
+    const created = await emitAck(host, 'room:create', {
+      actionId: crypto.randomUUID(), nickname: 'Đỏ', visibility: 'private', gameKey: 'cotuong', avatarId: 2,
+      settings: { gameKey: 'cotuong', targetScore: 10, baseMinutes: 5, incrementSeconds: 0, redSide: 'host-red' },
+    });
+    expect(created.ok).toBe(true); expect(created.snapshot).toMatchObject({ gameKey: 'cotuong', phase: 'waiting', settings: { targetScore: 10 } });
+    const credentials = created.credentials!;
+    const joined = await emitAck(guest, 'room:join', { actionId: crypto.randomUUID(), code: credentials.roomCode, nickname: 'Đen', avatarId: 5 });
+    expect(joined.ok).toBe(true); guestView = joined.snapshot;
+    const ready = await emitAck(guest, 'room:ready', action(credentials.roomId, joined.snapshot!.revision, { ready: true }));
+    const started = await emitAck(host, 'room:start', action(credentials.roomId, ready.snapshot!.revision));
+    expect(started.ok).toBe(true); expect(started.snapshot!.game).toMatchObject({ phase: 'turn', currentSide: 'red', board: expect.any(Array) });
+    expect(started.snapshot!.game.board.filter(Boolean)).toHaveLength(32);
+    expect(started.snapshot!.game).not.toHaveProperty('positionHistory');
+    expect(started.snapshot!.game.capabilities.canMove).toBe(true);
+    await waitForSnapshot(guest, () => guestView, started.snapshot!.revision);
+    expect(guestView.game.capabilities.canMove).toBe(false);
+    expect(guestView.game.legalMoves).toEqual([]);
+
+    const move = started.snapshot!.game.legalMoves[0];
+    expect(move).toBeTruthy();
+    const denied = await emitAck(guest, 'cotuong:action', action(credentials.roomId, started.snapshot!.revision, {
+      gameId: started.snapshot!.game.gameId, type: 'move', turnId: started.snapshot!.game.turnId, ...move,
+    }));
+    expect(denied.ok).toBe(false);
+
+    const moved = await emitAck(host, 'cotuong:action', action(credentials.roomId, started.snapshot!.revision, {
+      gameId: started.snapshot!.game.gameId, type: 'move', turnId: started.snapshot!.game.turnId, ...move,
+    }));
+    expect(moved.ok).toBe(true); expect(moved.snapshot!.game.currentSide).toBe('black');
+    await waitForSnapshot(guest, () => guestView, moved.snapshot!.revision);
+    expect(guestView.game.lastMove).toMatchObject(move);
+    expect(guestView.game.capabilities.canMove).toBe(true);
+
+    const resigned = await emitAck(guest, 'cotuong:action', action(credentials.roomId, moved.snapshot!.revision, {
+      gameId: moved.snapshot!.game.gameId, type: 'resign',
+    }));
+    expect(resigned.ok).toBe(true);
+    expect(resigned.snapshot!.game).toMatchObject({ phase: 'finished', finishReason: 'resign', winnerSide: 'red' });
+    expect(resigned.snapshot!.match).toMatchObject({ status: 'finished', winnerId: credentials.playerId });
+    expect(resigned.snapshot!.match.scores.find((score: any) => score.playerId === credentials.playerId)).toMatchObject({ score: 10 });
+  }, 10_000);
+
+  it('cùng máy tạo token riêng, luân phiên nước đi, xử lý hòa, khóa context và đổi bên ván mới', async () => {
+    const { open } = await startServer();
+    const owner = await open();
+    const created = await emitAck(owner, 'cotuong:local:create', {
+      actionId: crypto.randomUUID(), redNickname: 'Đỏ tại máy', blackNickname: 'Đen tại máy', redAvatarId: 1, blackAvatarId: 8, clock: null,
+    });
+    expect(created.ok).toBe(true); expect(created.game).toMatchObject({ phase: 'turn', currentSide: 'red', clock: null });
+    const credentials = created.credentials!;
+    expect(credentials.token).toMatch(/^[A-Za-z0-9_-]{40,60}$/);
+    expect(JSON.stringify(created.game)).not.toContain(credentials.token);
+
+    const onlineDenied = await emitAck(owner, 'room:create', { actionId: crypto.randomUUID(), nickname: 'Không được', visibility: 'private', gameKey: 'cotuong' });
+    expect(onlineDenied).toMatchObject({ ok: false, code: 'ACTIVE_LOCAL_GAME' });
+
+    const move = created.game.legalMoves[0];
+    const moved = await emitAck(owner, 'cotuong:local:action', {
+      actionId: crypto.randomUUID(), ...credentials, expectedRevision: created.game.revision, gameId: created.game.gameId,
+      type: 'move', turnId: created.game.turnId, ...move,
+    });
+    expect(moved.ok).toBe(true); expect(moved.game.currentSide).toBe('black'); expect(moved.game.historyCount).toBe(1);
+
+    const offered = await emitAck(owner, 'cotuong:local:action', {
+      actionId: crypto.randomUUID(), ...credentials, expectedRevision: moved.game.revision, gameId: moved.game.gameId,
+      type: 'offerDraw', turnId: moved.game.turnId, actingSide: 'black',
+    });
+    expect(offered.ok).toBe(true); expect(offered.game.drawOffer.offeredBy).toBe('black');
+    const accepted = await emitAck(owner, 'cotuong:local:action', {
+      actionId: crypto.randomUUID(), ...credentials, expectedRevision: offered.game.revision, gameId: offered.game.gameId,
+      type: 'respondDraw', offerId: offered.game.drawOffer.id, accept: true, actingSide: 'red',
+    });
+    expect(accepted.ok).toBe(true); expect(accepted.game).toMatchObject({ phase: 'finished', finishReason: 'draw-agreement' });
+
+    const newGame = await emitAck(owner, 'cotuong:local:new-game', {
+      actionId: crypto.randomUUID(), ...credentials, expectedRevision: accepted.game.revision, redPlayerStarts: false,
+    });
+    expect(newGame.ok).toBe(true); expect(newGame.game.gameId).not.toBe(accepted.game.gameId);
+    expect(newGame.game.players.find((player: any) => player.nickname === 'Đen tại máy').side).toBe('red');
+    expect(newGame.game.board.filter(Boolean)).toHaveLength(32);
+
+    const secondSocket = await open();
+    const revokedEvent = new Promise<any>((resolve) => owner.once('cotuong:local:revoked', resolve));
+    const resumed = await emitAck(secondSocket, 'cotuong:local:resume', credentials);
+    expect(resumed.ok).toBe(true); expect(resumed.game.gameId).toBe(newGame.game.gameId);
+    expect(await revokedEvent).toMatchObject({ message: expect.any(String) });
+    const staleOwner = await emitAck(owner, 'cotuong:local:action', {
+      actionId: crypto.randomUUID(), ...credentials, expectedRevision: resumed.game.revision, gameId: resumed.game.gameId,
+      type: 'move', turnId: resumed.game.turnId, ...resumed.game.legalMoves[0],
+    });
+    expect(staleOwner).toMatchObject({ ok: false, code: 'LOCAL_SESSION_REPLACED' });
+  }, 10_000);
+});
 
 class CaroFixtureRoomService extends RoomService {
   override start(room: ReturnType<RoomService['getRoom']>, actor: ReturnType<RoomService['getSeat']>) {
