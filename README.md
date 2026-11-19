@@ -1,17 +1,17 @@
-# Hội Quậy — UNO, Nối từ, Caro, Bắn tàu và Cờ tướng
+# Hội Quậy — UNO, Nối từ, Caro, Bắn tàu, Cờ tướng và Cờ vua
 
 Phiên bản **Fix 1.1 (`v1.1.0`)** — bản cập nhật dành cho CLB chơi thử. Xem [đánh giá, thay đổi và kiểm chứng phát hành](docs/reports/fix-1.1/summary.md).
 
-Bản MVP có UNO tùy chỉnh **BB-UNO-1**, Nối từ **NT-VI-1**, Caro **HQ-CARO-1** và Bắn tàu **HQ-BANTAU-1**; vào phòng bằng mã. Caro và Bắn tàu chơi đúng 2 người; UNO/Nối từ chơi 2–6 người. Giao diện và thông báo bằng tiếng Việt. Đây là dự án không chính thức, không liên kết với Mattel. Xem [luật UNO](docs/uno-rules.md), [luật Nối từ](docs/noitu-rules.md), [luật Caro](docs/caro-rules.md) và [luật Bắn tàu](docs/bantau-rules.md).
+Bản MVP có UNO **BB-UNO-1**, Nối từ **NT-VI-1**, Caro **HQ-CARO-1**, Bắn tàu **HQ-BANTAU-1**, Cờ tướng **HQ-COTUONG-1** và Cờ vua **HQ-COVUA-1**; vào phòng bằng mã. Cờ vua/Cờ tướng/Caro/Bắn tàu chơi đúng 2 người; UNO/Nối từ chơi 2–6 người. Giao diện và thông báo bằng tiếng Việt. Đây là dự án không chính thức, không liên kết với Mattel. Xem [luật UNO](docs/uno-rules.md), [luật Nối từ](docs/noitu-rules.md), [luật Caro](docs/caro-rules.md), [luật Bắn tàu](docs/bantau-rules.md), [luật Cờ tướng](docs/cotuong-rules.md) và [luật Cờ vua](docs/covua-rules.md).
 
-Trong working tree hiện tại đã bổ sung Cờ tướng HQ-COTUONG-1: đúng 2 người, đấu online hoặc hai người cùng máy qua backend. Tính năng đang chờ Terra QA độc lập; chưa deploy/phát hành.
+Trong working tree hiện tại đã bổ sung Cờ tướng HQ-COTUONG-1 và Cờ vua HQ-COVUA-1: đều đúng 2 người, có đấu online hoặc hai người cùng máy qua backend. Hai tính năng đang chờ Terra QA độc lập; chưa deploy/phát hành.
 
 ## Công nghệ
 
 - Frontend: React, TypeScript, Vite và CSS tokens.
 - Realtime: Node.js, TypeScript và Socket.IO.
-- Logic game tách riêng trong `packages/uno`, `packages/noitu`, `packages/caro`, `packages/bantau` và `packages/cotuong`; schema và catalog trong `packages/shared`.
-- Bắn tàu và Cờ tướng có engine riêng; server quyết định nước đi, đội hình, nhắm/bắn, deadline và kết quả.
+- Logic game tách riêng trong `packages/uno`, `packages/noitu`, `packages/caro`, `packages/bantau`, `packages/cotuong` và `packages/covua`; schema và catalog trong `packages/shared`.
+- Bắn tàu, Cờ tướng và Cờ vua có engine ở backend; server quyết định nước đi, đội hình, nhắm/bắn, deadline và kết quả.
 - Phòng và phiên nằm trong RAM backend. Không tài khoản, database, bot, chat hoặc lịch sử lâu dài.
 
 Yêu cầu Node.js **20.19+** hoặc **22.12+**. Đã chạy với Node `v26.4.0` và npm `11.7.0`.
@@ -71,6 +71,7 @@ Vercel chỉ host static frontend trong cấu hình này. Backend phải phục 
 - Khi tạo phòng, panel cài đặt cho chọn công khai/riêng tư, mục tiêu trận, thời gian mỗi lượt và tùy chọn riêng của game. Chủ phòng có thể chỉnh trước khi bắt đầu; khách cần sẵn sàng lại sau khi cấu hình đổi.
 - UNO/Nối từ hỗ trợ 2–6 người. Caro yêu cầu đúng 2 người. Khách bấm “Sẵn sàng”; chủ phòng bắt đầu khi đủ người, mọi khách đang kết nối và đã sẵn sàng.
 - Cờ tướng yêu cầu đúng 2 người. Có thể tạo phòng online hoặc chọn “Hai người cùng máy”; chế độ cùng máy vẫn cần kết nối backend, không phải chơi offline.
+- Cờ vua yêu cầu đúng 2 người. Có thể chơi Online qua phòng hoặc “Hai người cùng máy”; engine `chess.js` chỉ được dùng ở backend.
 - Chủ phòng có thể mời người chơi ra. Nếu trận đã bắt đầu, thay đổi roster sẽ hủy trận đang chạy.
 - Reload/mất mạng ngắn dùng token nối lại trong localStorage để về đúng ghế. Ghế offline được giữ 90 giây; hết hạn thì áp dụng xử lý disconnect/timeout của game. Server khởi động lại làm mất toàn bộ phòng và phiên.
 - Mỗi ván thắng cộng 10 điểm vào trận. Nếu chưa đạt mục tiêu, server tự bắt đầu ván tiếp theo sau 3 giây; không cần sẵn sàng lại. Người chơi có thể rời trong countdown, khi đó trận/countdown bị hủy.
@@ -96,6 +97,10 @@ HQ-BANTAU-1 chơi đúng 2 người. Mỗi người xếp kín hạm đội củ
 
 HQ-COTUONG-1 hỗ trợ hai người online trong phòng hoặc lần lượt chơi trên cùng một thiết bị. Đỏ đi trước; engine kiểm tra nước hợp lệ, chiếu, chiếu bí, hòa, lặp thế và đồng hồ ở server. Luật lặp và mốc 120 nước không bắt quân là lựa chọn đơn giản hóa của Hội Quậy, chưa triển khai đầy đủ luật đuổi quân dai WXF. Xem [luật và giới hạn](docs/cotuong-rules.md), [tổng kết và checklist Terra](docs/reports/cotuong/summary.md).
 
+## Cờ vua
+
+HQ-COVUA-1 hỗ trợ hai người online trong phòng hoặc hai người lần lượt trên cùng thiết bị. Trắng đi trước; backend xác thực nước đi, nhập thành, bắt tốt qua đường, phong cấp, chiếu bí/hòa và đồng hồ. 2P giữ Trắng phía dưới mặc định và cho phép xoay bàn thủ công. Một số tình huống hòa theo đồng hồ/thiếu quân bị giới hạn theo lựa chọn đã công bố; xem [luật và giới hạn](docs/covua-rules.md), [báo cáo triển khai và checklist Terra](docs/reports/covua/summary.md).
+
 Từ điển đang là snapshot thử nghiệm 47.877 mục. Bộ nguồn chưa được rà nghĩa toàn tập và quyền phân phối dữ liệu chưa được xác minh theo từng nguồn; không nên phân phối bộ từ này công khai trước khi giải quyết. Nếu nạp/hash dữ liệu lỗi, Nối từ bị tắt riêng, UNO vẫn hoạt động. Dữ liệu, provenance và cách tái tạo nằm ở `data/word-chain/`.
 
 ## Tài liệu
@@ -113,6 +118,8 @@ Từ điển đang là snapshot thử nghiệm 47.877 mục. Bộ nguồn chưa 
 - [Tổng kết và checklist Terra Bắn tàu](docs/reports/bantau/summary.md)
 - [Luật HQ-COTUONG-1](docs/cotuong-rules.md)
 - [Tổng kết và checklist Terra Cờ tướng](docs/reports/cotuong/summary.md)
+- [Luật HQ-COVUA-1](docs/covua-rules.md)
+- [Báo cáo triển khai và checklist Terra Cờ vua](docs/reports/covua/summary.md)
 - [Đặc tả sản phẩm](docs/product-spec.md)
 - [Kiến trúc](docs/architecture.md)
 - [Phòng chơi và tái sử dụng](docs/rooms-and-reuse.md)

@@ -463,3 +463,27 @@ it('chỉ host Caro được đổi số quân trong sảnh, reset ready, đồn
   service.rematch(host.room, host.seat);
   expect(service.snapshot(host.room, guest.seat.id)).toMatchObject({ caroWinLength: 4 });
 });
+
+describe('Phòng Cờ vua HQ-COVUA-1', () => {
+  it('chạy nước đi qua phòng server, chỉ cho đúng hai ghế, chấm điểm sau khi xin thua', () => {
+    const service = create();
+    const host = service.create('Trắng', 'private', 'white-socket', 'covua', 2, { gameKey:'covua', targetScore:50, baseMinutes:5, incrementSeconds:0, whiteSide:'host-white' });
+    const guest = service.join(host.room.code, 'Đen', 'black-socket', 8);
+    expect(() => service.join(host.room.code, 'Người thứ ba', 'third-socket')).toThrow(/đã đủ 2 người/i);
+    service.ready(host.room, guest.seat, true);
+    service.start(host.room, host.seat);
+    const first = service.snapshot(host.room, host.seat.id);
+    expect(first.gameKey).toBe('covua');
+    if (first.gameKey !== 'covua' || !first.game) throw new Error('Thiếu snapshot Cờ vua');
+    expect(first.game.legalMoves.length).toBeGreaterThan(0);
+    const move = first.game.legalMoves.find((item) => !item.promotion)!;
+    service.covuaAction(host.room, host.seat, host.room.revision, { actionId:'00000000-0000-4000-8000-000000000001', roomId:host.room.id, gameId:first.game.gameId, expectedRevision:host.room.revision, type:'move', turnId:first.game.turnId, move });
+    const afterMove = service.snapshot(host.room, guest.seat.id);
+    if (afterMove.gameKey !== 'covua' || !afterMove.game) throw new Error('Thiếu snapshot Cờ vua sau nước đi');
+    expect(afterMove.game.currentColor).toBe('black');
+    expect(afterMove.game.viewerColor).toBe('black');
+    service.covuaAction(host.room, guest.seat, host.room.revision, { actionId:'00000000-0000-4000-8000-000000000002', roomId:host.room.id, gameId:afterMove.game.gameId, expectedRevision:host.room.revision, type:'resign' });
+    expect(host.room.match?.status).toBe('intermission');
+    expect(host.room.match?.scores.get(host.seat.id)).toBe(10);
+  });
+});

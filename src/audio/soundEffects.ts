@@ -1,4 +1,4 @@
-export type SoundCue = 'tap' | 'card' | 'penalty' | 'receive' | 'type' | 'delete' | 'reject' | 'mark' | 'win' | 'water' | 'impact' | 'ship-sunk' | 'bantau-launch' | 'cotuong-move' | 'cotuong-capture' | 'cotuong-check';
+export type SoundCue = 'tap' | 'card' | 'penalty' | 'receive' | 'type' | 'delete' | 'reject' | 'mark' | 'win' | 'water' | 'impact' | 'ship-sunk' | 'bantau-launch' | 'cotuong-move' | 'cotuong-capture' | 'cotuong-check' | 'covua-move' | 'covua-capture' | 'covua-check';
 
 let context: AudioContext | null = null;
 let masterGain: GainNode | null = null;
@@ -87,9 +87,9 @@ export function playSound(cue: SoundCue, strength = 4) {
   const now = performance.now();
   const minimumGap = cue === 'type' || cue === 'delete' ? 65 : 24;
   if (now - (lastCueAt.get(cue) ?? 0) < minimumGap) return;
-  const requiredVoices = cue === 'card' || cue === 'reject' || cue === 'delete' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture' ? 2 : cue === 'win' ? 3 : 1;
+  const requiredVoices = cue === 'card' || cue === 'reject' || cue === 'delete' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture' || cue === 'covua-move' || cue === 'covua-capture' ? 2 : cue === 'win' ? 3 : 1;
   if ((cue === 'type' || cue === 'delete') && activeVoices.size + requiredVoices > 5) return;
-  if (cue === 'card' || cue === 'reject' || cue === 'win' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture') {
+  if (cue === 'card' || cue === 'reject' || cue === 'win' || cue === 'water' || cue === 'impact' || cue === 'ship-sunk' || cue === 'bantau-launch' || cue === 'cotuong-capture' || cue === 'covua-move' || cue === 'covua-capture') {
     for (const [source, activeCue] of activeVoices) {
       if (activeCue === 'type' || activeCue === 'delete') {
         try { source.stop(); } catch { /* Already ended. */ }
@@ -158,6 +158,17 @@ export function playSound(cue: SoundCue, strength = 4) {
       break;
     case 'cotuong-check':
       tone(ctx, cue, 660, .085, 'sine', .032, 880);
+      break;
+    case 'covua-move':
+      tone(ctx, cue, 235, .095, 'triangle', .105, 112);
+      noise(ctx, cue, .055, .045, 'lowpass', 1750);
+      break;
+    case 'covua-capture':
+      tone(ctx, cue, 142, .18, 'triangle', .19, 48);
+      noise(ctx, cue, .115, .085, 'lowpass', 980);
+      break;
+    case 'covua-check':
+      tone(ctx, cue, 520, .12, 'triangle', .075, 850);
       break;
   }
 }

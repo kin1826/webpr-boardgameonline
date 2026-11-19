@@ -2,9 +2,12 @@ import { z } from 'zod';
 import { unoPublicGameSchema, noituPublicGameSchema } from './public-game-schemas';
 import { bantauPublicGameSchema } from './bantau-public-game-schema';
 import { cotuongPublicGameSchema, cotuongSettingsSchema } from './cotuong-public-game-schema';
+import { covuaPublicGameSchema, covuaSettingsSchema } from './covua-public-game-schema';
 export { unoPublicGameSchema, noituPublicGameSchema } from './public-game-schemas';
 export { bantauPublicGameSchema } from './bantau-public-game-schema';
 export { cotuongPublicGameSchema, cotuongSettingsSchema, cotuongActionSchema, cotuongLocalActionSchema, cotuongLocalCreateSchema, cotuongLocalResumeSchema, cotuongLocalNewGameSchema, cotuongClockMinutesSchema, cotuongIncrementSecondsSchema, cotuongSideChoiceSchema } from './cotuong-public-game-schema';
+export { covuaPublicGameSchema, covuaSettingsSchema, covuaActionSchema, covuaLocalActionSchema, covuaLocalCreateSchema, covuaLocalResumeSchema, covuaLocalNewGameSchema } from './covua-public-game-schema';
+export type { CovuaPublicGame, CovuaActionPayload, CovuaLocalActionPayload, CovuaLocalCreatePayload, CovuaLocalResumePayload, CovuaLocalNewGamePayload } from './covua-public-game-schema';
 export { bantauActionSchema, bantauAimSchema, bantauAimStateSchema, bantauPlacementSchema, bantauEffectSchema } from './bantau-public-game-schema';
 export type { BantauActionPayload, BantauAimPayload, BantauPlacementPayload, BantauEffectEvent, BantauPublicGame } from './bantau-public-game-schema';
 export type { CotuongActionPayload, CotuongLocalActionPayload, CotuongLocalCreatePayload, CotuongLocalResumePayload, CotuongLocalNewGamePayload } from './cotuong-public-game-schema';
@@ -13,6 +16,7 @@ import type { UnoPublicGame } from '@banban/uno';
 import type { CaroPublicGame } from '@banban/caro';
 import type { BantauPlayerSnapshot } from '@banban/bantau';
 import type { CotuongPublicGame } from '@banban/cotuong';
+import type { CovuaPublicGame } from './covua-public-game-schema';
 
 export const GAME_CATALOG = {
   uno: { key: 'uno', name: 'UNO', minPlayers: 2, maxPlayers: 6 },
@@ -20,6 +24,7 @@ export const GAME_CATALOG = {
   caro: { key: 'caro', name: 'Caro', minPlayers: 2, maxPlayers: 2 },
   bantau: { key: 'bantau', name: 'Bắn tàu', minPlayers: 2, maxPlayers: 2 },
   cotuong: { key: 'cotuong', name: 'Cờ tướng', minPlayers: 2, maxPlayers: 2 },
+  covua: { key: 'covua', name: 'Cờ vua', minPlayers: 2, maxPlayers: 2 },
 } as const;
 
 export type GameKey = keyof typeof GAME_CATALOG;
@@ -38,6 +43,7 @@ export const gameSettingsSchema = z.discriminatedUnion('gameKey', [
   z.object({ gameKey: z.literal('caro'), turnSeconds: turnSecondsSchema, targetScore: targetScoreSchema, boardSize: caroBoardSizeSchema, winLength: caroWinLengthSchema }).strict(),
   z.object({ gameKey: z.literal('bantau'), turnSeconds: turnSecondsSchema, targetScore: targetScoreSchema, boardSize: bantauBoardSizeSchema, shipCount: bantauShipCountSchema, hitContinues: z.boolean(), allowTouch: z.boolean() }).strict(),
   cotuongSettingsSchema,
+  covuaSettingsSchema,
 ]);
 export type GameSettings = z.infer<typeof gameSettingsSchema>;
 export type UnoRoomSettings = Extract<GameSettings, { gameKey: 'uno' }>;
@@ -45,12 +51,14 @@ export type NoituRoomSettings = Extract<GameSettings, { gameKey: 'noitu' }>;
 export type CaroRoomSettings = Extract<GameSettings, { gameKey: 'caro' }>;
 export type BantauRoomSettings = Extract<GameSettings, { gameKey: 'bantau' }>;
 export type CotuongRoomSettings = Extract<GameSettings, { gameKey: 'cotuong' }>;
+export type CovuaRoomSettings = Extract<GameSettings, { gameKey: 'covua' }>;
 export const DEFAULT_GAME_SETTINGS: { [K in GameKey]: Extract<GameSettings, { gameKey: K }> } = {
   uno: { gameKey: 'uno', turnSeconds: 30, targetScore: 50, stacking: true },
   noitu: { gameKey: 'noitu', turnSeconds: 30, targetScore: 50 },
   caro: { gameKey: 'caro', turnSeconds: 30, targetScore: 50, boardSize: 15, winLength: 5 },
   bantau: { gameKey: 'bantau', turnSeconds: 30, targetScore: 50, boardSize: 10, shipCount: 5, hitContinues: true, allowTouch: false },
   cotuong: { gameKey: 'cotuong', targetScore: 50, baseMinutes: 10, incrementSeconds: 3, redSide: 'random' },
+  covua: { gameKey: 'covua', targetScore: 50, baseMinutes: 10, incrementSeconds: 3, whiteSide: 'random' },
 };
 
 export const nicknameSchema = z.string().trim().min(1).max(24).transform((value) => value.normalize('NFC'));
@@ -123,6 +131,7 @@ export type RoomSnapshot = RoomSnapshotBase & (
   | { gameKey: 'caro'; settings: CaroRoomSettings; caroWinLength: 4 | 5 | 6; game: CaroPublicGame | null }
   | { gameKey: 'bantau'; settings: BantauRoomSettings; game: BantauPlayerSnapshot | null }
   | { gameKey: 'cotuong'; settings: CotuongRoomSettings; game: CotuongPublicGame | null }
+  | { gameKey: 'covua'; settings: CovuaRoomSettings; game: CovuaPublicGame | null }
 );
 
 export const caroSettingsSchema = actionEnvelopeSchema.extend({ winLength: caroWinLengthSchema }).strict();
@@ -167,6 +176,7 @@ const roomSnapshotRuntimeSchema = z.discriminatedUnion('gameKey', [
   roomSnapshotBaseSchema.extend({ gameKey: z.literal('uno'), settings: z.object({ gameKey: z.literal('uno'), turnSeconds: turnSecondsSchema, targetScore: targetScoreSchema, stacking: z.boolean() }).strict(), game: unoPublicGameSchema.nullable() }).strict(),
   roomSnapshotBaseSchema.extend({ gameKey: z.literal('noitu'), settings: z.object({ gameKey: z.literal('noitu'), turnSeconds: turnSecondsSchema, targetScore: targetScoreSchema }).strict(), game: noituPublicGameSchema.nullable() }).strict(),
   roomSnapshotBaseSchema.extend({ gameKey: z.literal('cotuong'), settings: cotuongSettingsSchema, game: cotuongPublicGameSchema.nullable() }).strict(),
+  roomSnapshotBaseSchema.extend({ gameKey: z.literal('covua'), settings: covuaSettingsSchema, game: covuaPublicGameSchema.nullable() }).strict(),
 ]);
 export function parseRoomSnapshot(value: unknown): RoomSnapshot | null {
   const parsed = roomSnapshotRuntimeSchema.safeParse(value);
@@ -187,7 +197,7 @@ export type GameEffectEvent = z.infer<typeof gameEffectSchema>;
 export type SessionCredentials = { roomId: string; roomCode: string; playerId: string; token: string };
 export const sessionCredentialsSchema = z.object({ roomId: z.string().min(8).max(80), roomCode: roomCodeSchema, playerId: z.string().uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{40,60}$/) }).strict();
 
-export const roomCreateSchema = z.object({ actionId: z.string().uuid(), nickname: nicknameSchema, avatarId: avatarIdSchema.optional(), visibility: z.enum(['public', 'private']), gameKey: z.enum(['uno', 'noitu', 'caro', 'bantau', 'cotuong']).default('uno'), settings: gameSettingsSchema.optional() }).strict();
+export const roomCreateSchema = z.object({ actionId: z.string().uuid(), nickname: nicknameSchema, avatarId: avatarIdSchema.optional(), visibility: z.enum(['public', 'private']), gameKey: z.enum(['uno', 'noitu', 'caro', 'bantau', 'cotuong', 'covua']).default('uno'), settings: gameSettingsSchema.optional() }).strict();
 export const roomJoinSchema = z.object({ actionId: z.string().uuid(), code: roomCodeSchema, nickname: nicknameSchema, avatarId: avatarIdSchema.optional() }).strict();
 export const resumeSchema = z.object({ roomId: z.string().min(8).max(80), playerId: z.string().uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{40,60}$/) }).strict();
 export const roomCommandSchema = z.object({ actionId: z.string().uuid(), roomId: z.string().min(8).max(80), expectedRevision: z.number().int().nonnegative() }).strict();
