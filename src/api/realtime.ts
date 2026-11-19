@@ -1,8 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
 import {
-  bantauAimStateSchema, bantauEffectSchema, cotuongPublicGameSchema, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
+  bantauAimStateSchema, bantauEffectSchema, cotuongPublicGameSchema, covuaPublicGameSchema, gameEffectSchema, noituDraftClearSchema, noituDraftNoticeSchema, parseRoomSnapshot, roomClosedSchema, sessionCredentialsSchema,
   type BantauActionPayload, type BantauAimPayload, type BantauEffectEvent, type BantauPlacementPayload, type BantauPublicGame, type GameEffectEvent, type GameKey, type NoituDraftNotice, type NoituDraftPayload,
-  type CaroActionPayload, type CotuongActionPayload, type CotuongLocalActionPayload, type CotuongLocalCreatePayload, type CotuongLocalNewGamePayload, type CotuongLocalResumePayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
+  type CaroActionPayload, type CovuaActionPayload, type CovuaLocalActionPayload, type CovuaLocalCreatePayload, type CovuaLocalNewGamePayload, type CovuaLocalResumePayload, type CotuongActionPayload, type CotuongLocalActionPayload, type CotuongLocalCreatePayload, type CotuongLocalNewGamePayload, type CotuongLocalResumePayload, type GameSettings, type RoomSnapshot, type RoomVisibility, type SessionCredentials, type GameActionPayload, type NoituActionPayload,
 } from '@banban/shared';
 import { createActionId } from '../action-id';
 import type { BackendApiConfig } from './config';
@@ -19,6 +19,8 @@ export type ApiReply = {
   cotuongGame?: import('@banban/cotuong').CotuongPublicGame;
   localCredentials?: { localSessionId: string; token: string };
   localAvatars?: { red: number; black: number };
+  covuaGame?: import('@banban/shared').CovuaPublicGame;
+  covuaAvatars?: { white: number; black: number };
 };
 
 type ActionEnvelopeKeys = 'actionId' | 'roomId' | 'expectedRevision' | 'gameId';
@@ -30,6 +32,8 @@ type PrivateEnvelopeKeys = 'actionId' | 'roomId';
 type IntentWithoutPrivateEnvelope<T> = T extends Record<PrivateEnvelopeKeys, unknown> ? Omit<T, PrivateEnvelopeKeys> : never;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type CotuongActionIntent = DistributiveOmit<CotuongActionPayload, ActionEnvelopeKeys>;
+export type CovuaActionIntent = DistributiveOmit<CovuaActionPayload, ActionEnvelopeKeys>;
+export type CovuaLocalActionIntent = DistributiveOmit<CovuaLocalActionPayload, 'actionId'>;
 export type CotuongLocalActionIntent = DistributiveOmit<CotuongLocalActionPayload, 'actionId'>;
 export type BantauPlacementIntent = DistributiveOmit<BantauPlacementPayload, 'actionId' | 'roomId'>;
 export type BantauAimIntent = IntentWithoutPrivateEnvelope<BantauAimPayload>;
@@ -56,6 +60,8 @@ export type RealtimeHandlers = {
   onSessionRevoked?: (payload: { message?: string }) => void;
   onLocalCotuongChanged?: (payload: { sessionId: string; game: import('@banban/cotuong').CotuongPublicGame; avatars: { red: number; black: number } }) => void;
   onLocalCotuongRevoked?: (payload: { message?: string }) => void;
+  onLocalCovuaChanged?: (payload: { sessionId: string; game: import('@banban/shared').CovuaPublicGame; avatars: { white: number; black: number } }) => void;
+  onLocalCovuaRevoked?: (payload: { message?: string }) => void;
 };
 
 export class RealtimeApiClient {
@@ -118,6 +124,15 @@ export class RealtimeApiClient {
       handlers.onLocalCotuongRevoked?.({ ...(message ? { message } : {}) });
     };
 
+    const onLocalCovuaChanged = (raw: unknown) => {
+      if (!raw || typeof raw !== 'object') return;
+      const value = raw as Record<string, unknown>;
+      const game = covuaPublicGameSchema.safeParse(value.game);
+      const avatars = value.avatars as Record<string, unknown> | undefined;
+      if (typeof value.sessionId === 'string' && game.success && Number.isInteger(avatars?.white) && Number.isInteger(avatars?.black)) handlers.onLocalCovuaChanged?.({ sessionId: value.sessionId, game: game.data, avatars: { white: avatars!.white as number, black: avatars!.black as number } });
+    };
+    const onLocalCovuaRevoked = (raw: unknown) => handlers.onLocalCovuaRevoked?.({ ...(raw && typeof raw === 'object' && 'message' in raw && typeof raw.message === 'string' ? { message: raw.message } : {}) });
+
     this.socket.on('connect', onConnect);
     this.socket.on('disconnect', onDisconnect);
     this.socket.on('connect_error', onConnectError);
@@ -130,6 +145,8 @@ export class RealtimeApiClient {
     this.socket.on('session:revoked', onSessionRevoked);
     this.socket.on('cotuong:local:changed', onLocalCotuongChanged);
     this.socket.on('cotuong:local:revoked', onLocalCotuongRevoked);
+    this.socket.on('covua:local:changed', onLocalCovuaChanged);
+    this.socket.on('covua:local:revoked', onLocalCovuaRevoked);
 
     return () => {
       this.socket.off('connect', onConnect);
@@ -144,6 +161,8 @@ export class RealtimeApiClient {
       this.socket.off('session:revoked', onSessionRevoked);
       this.socket.off('cotuong:local:changed', onLocalCotuongChanged);
       this.socket.off('cotuong:local:revoked', onLocalCotuongRevoked);
+      this.socket.off('covua:local:changed', onLocalCovuaChanged);
+      this.socket.off('covua:local:revoked', onLocalCovuaRevoked);
     };
   }
 
@@ -200,6 +219,13 @@ export class RealtimeApiClient {
   newLocalCotuong(input: Omit<CotuongLocalNewGamePayload, 'actionId'>): Promise<ApiReply> { return this.emitAck('cotuong:local:new-game', { actionId: createActionId(), ...input }); }
   leaveLocalCotuong(input: CotuongLocalResumePayload): Promise<ApiReply> { return this.emitAck('cotuong:local:leave', input); }
 
+  covuaAction(roomId: string, expectedRevision: number, gameId: string, intent: CovuaActionIntent): Promise<ApiReply> { return this.emitAck('covua:action', { actionId: createActionId(), roomId, expectedRevision, gameId, ...intent }); }
+  createLocalCovua(input: Omit<CovuaLocalCreatePayload, 'actionId'>): Promise<ApiReply> { return this.emitAck('covua:local:create', { actionId: createActionId(), ...input }); }
+  resumeLocalCovua(input: CovuaLocalResumePayload): Promise<ApiReply> { return this.emitAck('covua:local:resume', input); }
+  localCovuaAction(input: CovuaLocalActionIntent): Promise<ApiReply> { return this.emitAck('covua:local:action', { actionId: createActionId(), ...input }); }
+  newLocalCovua(input: Omit<CovuaLocalNewGamePayload, 'actionId'>): Promise<ApiReply> { return this.emitAck('covua:local:new-game', { actionId: createActionId(), ...input }); }
+  leaveLocalCovua(input: CovuaLocalResumePayload): Promise<ApiReply> { return this.emitAck('covua:local:leave', input); }
+
   sendNoituDraft(payload: NoituDraftPayload): void {
     if (this.socket.connected) this.socket.emit('noitu:draft', payload);
   }
@@ -246,13 +272,17 @@ export class RealtimeApiClient {
         }
         const rawAvatars = value.avatars && typeof value.avatars === 'object' ? value.avatars as Record<string, unknown> : null;
         const localAvatars = rawAvatars && Number.isInteger(rawAvatars.red) && Number.isInteger(rawAvatars.black) ? { red: rawAvatars.red as number, black: rawAvatars.black as number } : undefined;
+        let covuaGame: ApiReply['covuaGame'];
+        if ('covuaGame' in value) { const parsed = covuaPublicGameSchema.safeParse(value.covuaGame); if (!parsed.success) return resolve({ ok: false, code: 'INVALID_RESPONSE', message: 'Máy chủ trả về bàn Cờ vua không hợp lệ.' }); covuaGame = parsed.data; }
+        const rawCovuaAvatars = value.covuaAvatars && typeof value.covuaAvatars === 'object' ? value.covuaAvatars as Record<string, unknown> : null;
+        const covuaAvatars = rawCovuaAvatars && Number.isInteger(rawCovuaAvatars.white) && Number.isInteger(rawCovuaAvatars.black) ? { white: rawCovuaAvatars.white as number, black: rawCovuaAvatars.black as number } : undefined;
         resolve({
           ok,
           ...(typeof value.code === 'string' ? { code: value.code } : {}),
           ...(typeof value.message === 'string' ? { message: value.message } : {}),
           ...(typeof value.actionId === 'string' ? { actionId: value.actionId } : {}),
           ...(typeof value.sequence === 'number' ? { sequence: value.sequence } : {}),
-          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}), ...('aim' in value ? { aim } : {}), ...(cotuongGame ? { cotuongGame } : {}), ...(localCredentials ? { localCredentials } : {}), ...(localAvatars ? { localAvatars } : {}),
+          ...(snapshot ? { snapshot } : {}), ...(credentials ? { credentials } : {}), ...('aim' in value ? { aim } : {}), ...(cotuongGame ? { cotuongGame } : {}), ...(localCredentials ? { localCredentials } : {}), ...(localAvatars ? { localAvatars } : {}), ...(covuaGame ? { covuaGame } : {}), ...(covuaAvatars ? { covuaAvatars } : {}),
         });
       });
     });

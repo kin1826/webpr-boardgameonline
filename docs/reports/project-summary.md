@@ -1,6 +1,6 @@
 # Tổng kết dự án Hội Quậy
 
-Cập nhật 18/11/2026. Nền **Fix 1.1 (`1.1.0`)** và hotfix 1.2 vẫn chưa push/deploy. Cờ tướng HQ-COTUONG-1 đã được polish; chờ Terra QA độc lập. Full suite hiện đạt 208/208 khi cho phép loopback; typecheck/build đạt. Browser/device smoke Cờ tướng chưa chạy vì browser access host unavailable. Không tăng package version, commit, push hoặc deploy.
+Cập nhật 19/11/2026. Nền **Fix 1.1 (`1.1.0`)** và hotfix 1.2 vẫn chưa push/deploy. Cờ tướng HQ-COTUONG-1 đã được polish; chờ Terra QA độc lập. Cờ vua HQ-COVUA-1 đã polish board geometry, SVG, motion và sound; typecheck/build đạt, full suite cuối 219/219 khi cho phép loopback. Browser/thiết bị/audio QA chưa chạy vì browser host unavailable. Không tăng package version, commit, push hoặc deploy.
 
 ## Hiện trạng
 
@@ -18,6 +18,7 @@ Server quyết định nghiệp vụ, lượt, deadline, điểm và kết quả
 | Caro | [HQ-CARO-1](../caro-rules.md): bàn 9/15/19, nối đúng 4/5/6 có đầu mở; chọn ô hai lần, timeout/resign thua, đổi X/O ván sau. [Lịch sử triển khai](./caro/summary.md) |
 | Bắn tàu | [HQ-BANTAU-1](../bantau-rules.md): đúng 2 người; đội hình 3/4/5 tàu; lần đầu nhắm, lần hai bắn; miss không lưu dấu; hết giờ bắn aim đã xác nhận hoặc ô ngẫu nhiên. [Tổng kết và QA còn mở](./bantau/summary.md) |
 | Cờ tướng | [HQ-COTUONG-1](../cotuong-rules.md): đúng 2 người; online theo room hoặc hai người cùng máy qua backend; quân SVG chữ truyền thống tự vẽ; bảng thông báo kết quả nổi bật; luật lặp/120 ply là lựa chọn giản lược Hội Quậy. [Tổng kết và QA còn mở](./cotuong/summary.md) |
+| Cờ vua | [HQ-COVUA-1](../covua-rules.md): đúng 2 người; Online qua phòng hoặc 2P cùng máy, engine `chess.js` chỉ ở backend, luật đặc biệt/hòa/đồng hồ theo giới hạn đã công bố. Đã qua kiểm tra tự động; chờ Terra QA trình duyệt/thiết bị. [Báo cáo và checklist](./covua/summary.md) |
 | Kiến trúc/phòng | [Backend](./backend-separation/summary.md), [room/session](../rooms-and-reuse.md), [kiến trúc](../architecture.md) |
 | Nhận diện/UI | [Branding](./branding/summary.md), [12 avatar](./player-avatars/summary.md), [lobby/share](./lobby-ux/summary.md), [đặc tả UI](../ui-ux.md) |
 
@@ -29,14 +30,16 @@ Lần kiểm định Fix 1.1 đạt **169/169 test trong 16 file** khi cho phép
 
 Chưa kiểm chứng UI cuối trên điện thoại thật, cảm giác sound/motion, trận đông người qua hosting, HTTPS/WSS và tải đồng thời; fixture và socket tests không thay thế các kiểm tra này. Những xác nhận join/sync LAN và UI Nối từ của người dùng ở bản trước là bằng chứng lịch sử. Kết quả cũ được giữ tại summary từng tính năng và [kiểm định trước v2](./deployment-readiness/summary.md).
 
-Riêng Cờ tướng sau polish ngày 18/11: `npm test` đạt **208/208 trong 21 file**, `npm run typecheck` và `npm run build` đạt. Build cảnh báo JS 577.88 kB minified (169.86 kB gzip), vượt 500 kB. Browser access không khả dụng nên chưa thử UI, hai browser độc lập, mobile hoặc nghe âm thanh. Xem [báo cáo polish và checklist Terra](./cotuong/summary.md).
+Cờ vua đã kiểm tra lại trước develop ngày 19/11: typecheck/build đạt, suite 219/219 trong 23 file; JS 606.17 kB minified (174.94 kB gzip), còn cảnh báo Zod/chunk. Chưa xác nhận browser/mobile/audio. [Tổng kết và QA còn mở](./covua/summary.md).
 
 ## Việc còn lại
 
+
+- Cờ vua: Online/2P, polish và ba lỗi review đã sửa; cần Terra xác nhận UI, geometry, sound, reconnect và claim dự định. [Tổng kết và checklist](./covua/summary.md).
 - Cờ tướng: đã triển khai Online/2P, quân truyền thống, geometry/motion/sound và bảng kết quả. Chờ browser/device/audio và Terra QA. [Tổng kết cùng checklist](./cotuong/summary.md).
 - Bắn tàu: đã triển khai và polish; browser cục bộ mới tới nhắm/bắn, chưa hoàn tất ván thắng hoặc QA hotfix 1.2 trên thiết bị. [Tổng kết cùng checklist](./bantau/summary.md).
 - Build/deploy frontend và backend cùng phiên bản; cấu hình Node một process, origin và WebSocket theo [README](../../README.md), [operations](../operations.md).
-- Terra/device QA cho năm game: session độc lập, mobile/IME/motion/sound, reconnect/reload/kick, timer/score/countdown. [Checklist Fix 1.1](./fix-1.1/summary.md#checklist-bàn-giao-terra-còn-mở), [test plan](../test-plan.md), [checklist Bắn tàu](./bantau/summary.md), [checklist Cờ tướng](./cotuong/summary.md).
+- Terra/device QA cho sáu game: session độc lập, mobile/IME/motion/sound, reconnect/reload/kick, timer/score/countdown. [Checklist Fix 1.1](./fix-1.1/summary.md#checklist-bàn-giao-terra-còn-mở), [test plan](../test-plan.md), [checklist Bắn tàu](./bantau/summary.md), [checklist Cờ tướng](./cotuong/summary.md), [checklist Cờ vua](./covua/summary.md).
 - Nối từ: 47.877 mục thử nghiệm; 200 mẫu semantic review và quyền từng nguồn chưa xác minh. Giữ [nguồn/hash/giấy phép](../../data/word-chain/README.md); chưa khẳng định bộ từ đã sạch hoặc được duyệt phân phối rộng.
 
 Quy trình tài liệu theo [AGENTS.md](../../AGENTS.md): đặc tả hiện hành ở `docs/`, báo cáo tại `docs/reports/<tính-năng>/`, khi chốt/gom chỉ giữ `summary.md` cùng bằng chứng cần thiết.

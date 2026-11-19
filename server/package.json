@@ -9,16 +9,17 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@banban/shared": "*",
+    "@banban/bantau": "*",
+    "@banban/caro": "*",
+    "@banban/cotuong": "*",
+    "@banban/covua": "*",
     "@banban/noitu": "*",
+    "@banban/shared": "*",
     "@banban/uno": "*",
     "sirv": "^3.0.2",
     "socket.io": "^4.8.4",
     "tsx": "^4.23.15",
-    "zod": "^4.6.7",
-    "@banban/caro": "*",
-    "@banban/bantau": "*",
-    "@banban/cotuong": "*"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
